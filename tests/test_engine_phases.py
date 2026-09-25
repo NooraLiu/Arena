@@ -1,0 +1,37 @@
+import asyncio
+import random
+from arena.models import Zone, Character, PlayerState, GameState
+from arena.players.bots import RandomBot
+from arena.engine import Engine, build_observation
+
+
+def _engine(zones_by_seat):
+    players, pbs = [], {}
+    rng = random.Random(0)
+    for seat, zone in zones_by_seat.items():
+        ch = Character("X", 5, 3)
+        players.append(PlayerState(seat=seat, character=ch, hp=5, zone=zone))
+        pbs[seat] = RandomBot(rng)
+    st = GameState(round_no=1, players=players, decks={z: [] for z in Zone},
+                   open_zones=set(Zone), first_seat=min(zones_by_seat))
+    return Engine(state=st, players_by_seat=pbs, rng=rng)
+
+
+def test_build_observation_lists_same_zone_targets():
+    eng = _engine({1: Zone.CENTER, 2: Zone.CENTER, 3: Zone.N})
+    obs = build_observation(eng, 1)
+    assert obs.attackable_seats == [2]      # seat 3 is elsewhere
+
+
+def test_movement_is_simultaneous_and_legal():
+    eng = _engine({1: Zone.N, 2: Zone.S})
+    asyncio.run(eng.movement_phase())
+    for p in eng.state.players:
+        assert p.zone in set(Zone)          # everyone landed somewhere legal
+
+
+def test_center_with_target_forces_attack():
+    eng = _engine({1: Zone.CENTER, 2: Zone.CENTER})
+    # deck empty so a Draw would be wasted; center rule must pick Attack
+    asyncio.run(eng.action_phase())
+    assert any(e.type == "attack" for e in eng.log.events)

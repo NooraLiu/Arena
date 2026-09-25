@@ -54,6 +54,56 @@ class Engine:
     def _lowest_hp(self, seats):
         return sorted(seats, key=lambda s: self._p(s).hp)[0]
 
+    _SHRINK_ORDER = [Zone.W, Zone.S, Zone.E, Zone.N]
+
+    def shrink_step(self):
+        if len(self.alive_players()) > config.SHRINK_TRIGGER:
+            return
+        for z in self._SHRINK_ORDER:
+            if z in self.state.open_zones:
+                self.state.open_zones.discard(z)
+                for p in self.alive_players():
+                    if p.zone == z:
+                        p.zone = Zone.CENTER
+                self.log.record(Event("zone_closed", self.state.round_no, None,
+                                       "public", {"zone": z.value}))
+                break
+
+    def check_winner(self):
+        alive = self.alive_players()
+        if len(alive) == 1:
+            return alive[0].seat
+        if len(alive) == 0:
+            return -1
+        return None
+
+    async def play_round(self):
+        await self.movement_phase()
+        await self.action_phase()
+        self.shrink_step()
+        self.state.round_no += 1
+        self.state.first_seat = (self.state.first_seat + 1) % len(self.state.players)
+
+    async def play_game(self):
+        elim_round = {}
+        while True:
+            w = self.check_winner()
+            if w is not None:
+                outcome = "draw" if w == -1 else "win"
+                return {"winner": None if w == -1 else w,
+                        "rounds": self.state.round_no - 1,
+                        "outcome": outcome, "elim_round_by_seat": elim_round}
+            if self.state.round_no > config.ROUND_CAP:
+                survivors = self.alive_players()
+                top = max(survivors, key=lambda p: p.hp).seat if survivors else None
+                return {"winner": top, "rounds": self.state.round_no - 1,
+                        "outcome": "capped", "elim_round_by_seat": elim_round}
+            before = {p.seat for p in self.alive_players()}
+            await self.play_round()
+            after = {p.seat for p in self.alive_players()}
+            for seat in before - after:
+                elim_round[seat] = self.state.round_no - 1
+
     def _apply(self, p: PlayerState, action):
         if isinstance(action, Draw):
             card = deck_draw(self.state, p.zone)

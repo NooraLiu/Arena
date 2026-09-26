@@ -6,11 +6,12 @@ from .setup import new_game
 from .players.bots import HeuristicBot
 
 
-def run_many(num_games: int, num_players: int, seed: int) -> List[Dict]:
+def run_many(num_games: int, num_players: int, seed: int,
+             data_path: str = None) -> List[Dict]:
     results = []
     for g in range(num_games):
         rng = random.Random(seed + g)
-        eng = new_game(num_players, rng, lambda: HeuristicBot(rng))
+        eng = new_game(num_players, rng, lambda: HeuristicBot(rng), data_path=data_path)
         results.append(asyncio.run(eng.play_game()))
     return results
 

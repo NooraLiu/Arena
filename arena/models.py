@@ -23,6 +23,10 @@ class Card:
     id: str
     type: CardType
     value: int  # weapon: +attack; food: +hp; armor: damage reduced; ammo: fragment count
+    name: str = ""          # display name, e.g. "蘑菇"
+    description: str = ""   # flavor text, e.g. "看上去有点毒的蘑菇"
+    effect: str = ""        # 特殊效果 / extra function (free text, used by v2+ agents)
+    synergy: str = ""       # 角色协同 / character-specific bonus (free text)
 
 
 @dataclass

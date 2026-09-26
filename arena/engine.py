@@ -41,7 +41,7 @@ class Engine:
         for p in order:
             if not p.alive:
                 continue
-            self._heal_if_downed(p)      # a downed player eats food to try to survive
+            self._maybe_heal(p)          # free additional action: eat food when wounded/downed
             obs = build_observation(self, p.seat)
             forced = (p.zone == Zone.CENTER and obs.attackable_seats)
             if forced:
@@ -124,16 +124,26 @@ class Engine:
                                    {"target": defender.seat, **res}))
             # death is not finalized here; end-of-round resolve_deaths() handles it
 
-    def _heal_if_downed(self, p: PlayerState):
-        """A downed (HP<=0) player consumes food on their turn to try to recover."""
+    def _eat_one_food(self, p: PlayerState) -> bool:
+        food = next((c for c in p.hand if c.type == CardType.FOOD), None)
+        if food is None:
+            return False
+        p.hand.remove(food)
+        p.hp += food.value
+        self.log.record(Event("heal", self.state.round_no, p.seat, "public",
+                               {"food": food.id, "hp": p.hp}))
+        return True
+
+    def _maybe_heal(self, p: PlayerState):
+        """Free additional action at the start of a turn:
+        - downed (<=0 HP): eat food repeatedly to try to get back above 0;
+        - wounded (HP at or below half of max): top up with one food.
+        A healthy player keeps its food."""
         while p.hp <= 0:
-            food = next((c for c in p.hand if c.type == CardType.FOOD), None)
-            if food is None:
+            if not self._eat_one_food(p):
                 break
-            p.hand.remove(food)
-            p.hp += food.value
-            self.log.record(Event("heal", self.state.round_no, p.seat, "public",
-                                   {"food": food.id, "hp": p.hp}))
+        if 0 < p.hp <= p.character.hp_max // 2:
+            self._eat_one_food(p)
 
     def resolve_deaths(self):
         """End-of-round: anyone still at <=0 HP is eliminated."""

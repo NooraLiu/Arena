@@ -37,6 +37,25 @@ def test_downed_player_still_acts_before_dying_and_can_retaliate():
     assert dfn.alive is False               # dies at end-of-round resolution (still <=0)
 
 
+def test_wounded_player_heals_proactively_before_dying():
+    # HP 1 of 5 (below half), holds food -> should top up on its turn, not wait to be downed.
+    food = Card("f1", CardType.FOOD, 2, name="面包")
+    p = PlayerState(seat=1, character=Character("D", 5, 2), hp=1, zone=Zone.N, hand=[food])
+    eng = _engine([p], {1: Draw()}, first_seat=1)
+    asyncio.run(eng.action_phase())
+    assert p.hp == 3                         # 1 + 2 (proactive heal)
+    assert food not in p.hand
+
+
+def test_healthy_player_does_not_waste_food():
+    food = Card("f1", CardType.FOOD, 2, name="面包")
+    p = PlayerState(seat=1, character=Character("D", 5, 2), hp=5, zone=Zone.N, hand=[food])
+    eng = _engine([p], {1: Draw()}, first_seat=1)
+    asyncio.run(eng.action_phase())
+    assert food in p.hand                     # full HP -> keep the food
+    assert p.hp == 5
+
+
 def test_downed_player_eats_food_to_survive():
     atk = PlayerState(seat=1, character=Character("A", 5, 1), hp=5, zone=Zone.N)
     food = Card("f1", CardType.FOOD, 2, name="面包")

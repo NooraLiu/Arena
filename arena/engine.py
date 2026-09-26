@@ -129,6 +129,10 @@ def build_observation(engine: Engine, seat: int) -> Observation:
     me = engine._p(seat)
     attackable = [q.seat for q in engine.alive_players()
                   if q.seat != seat and q.zone == me.zone]
-    moves = legal_moves(me.zone, engine.state.open_zones)
+    if engine.state.round_no == 1:
+        # Round 1 has no fixed spawn: each player freely places their pawn in any open zone.
+        moves = sorted(engine.state.open_zones, key=lambda z: z.value)
+    else:
+        moves = legal_moves(me.zone, engine.state.open_zones)
     return Observation(me=me, state=engine.state,
                        legal_move_zones=moves, attackable_seats=attackable)

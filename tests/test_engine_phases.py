@@ -30,6 +30,20 @@ def test_movement_is_simultaneous_and_legal():
         assert p.zone in set(Zone)          # everyone landed somewhere legal
 
 
+def test_round_one_is_free_placement_any_zone():
+    eng = _engine({1: Zone.N})
+    eng.state.round_no = 1
+    obs = build_observation(eng, 1)
+    assert set(obs.legal_move_zones) == set(Zone)   # choose any open zone, not just adjacent
+
+
+def test_later_rounds_constrained_to_adjacency():
+    eng = _engine({1: Zone.N})
+    eng.state.round_no = 2
+    obs = build_observation(eng, 1)
+    assert Zone.S not in obs.legal_move_zones        # S is not adjacent to N
+
+
 def test_center_with_target_forces_attack():
     eng = _engine({1: Zone.CENTER, 2: Zone.CENTER})
     # deck empty so a Draw would be wasted; center rule must pick Attack

@@ -3,7 +3,7 @@ import random
 from collections import Counter
 from typing import List, Dict
 from .setup import new_game
-from .players.bots import HeuristicBot
+from .players.bots import SmartBot
 
 
 def run_many(num_games: int, num_players: int, seed: int,
@@ -11,7 +11,7 @@ def run_many(num_games: int, num_players: int, seed: int,
     results = []
     for g in range(num_games):
         rng = random.Random(seed + g)
-        eng = new_game(num_players, rng, lambda: HeuristicBot(rng), data_path=data_path)
+        eng = new_game(num_players, rng, lambda: SmartBot(rng), data_path=data_path)
         results.append(asyncio.run(eng.play_game()))
     return results
 

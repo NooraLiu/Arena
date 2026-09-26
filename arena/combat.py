@@ -18,12 +18,12 @@ def _take_armor(defender: PlayerState):
 
 def resolve_attack(attacker: PlayerState, defender: PlayerState,
                    rng: random.Random, armor_reduction: int) -> Dict:
+    """Apply one attack's damage. Does NOT finalize death: a defender dropped to
+    <=0 HP is 'downed' but stays on the board until end-of-round resolution, so
+    they still get their action this round (heal / retaliate / draw)."""
     faces = max(1, attack_value(attacker))
     roll = rng.randint(1, faces)
     reduction = armor_reduction if _take_armor(defender) else 0
     damage = max(0, roll - reduction)
     defender.hp -= damage
-    eliminated = defender.hp <= 0
-    if eliminated:
-        defender.alive = False
-    return {"damage": damage, "roll": roll, "defender_eliminated": eliminated}
+    return {"damage": damage, "roll": roll, "downed": defender.hp <= 0}

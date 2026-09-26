@@ -41,6 +41,7 @@ class Engine:
         for p in order:
             if not p.alive:
                 continue
+            self._heal_if_downed(p)      # a downed player eats food to try to survive
             obs = build_observation(self, p.seat)
             forced = (p.zone == Zone.CENTER and obs.attackable_seats)
             if forced:
@@ -80,6 +81,7 @@ class Engine:
     async def play_round(self):
         await self.movement_phase()
         await self.action_phase()
+        self.resolve_deaths()          # finalize deaths only after everyone has acted
         self.shrink_step()
         self.state.round_no += 1
         self.state.first_seat = (self.state.first_seat + 1) % len(self.state.players)
@@ -120,9 +122,25 @@ class Engine:
             res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION)
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",
                                    {"target": defender.seat, **res}))
-            if res["defender_eliminated"]:
-                self.log.record(Event("eliminated", self.state.round_no,
-                                       defender.seat, "public", {}))
+            # death is not finalized here; end-of-round resolve_deaths() handles it
+
+    def _heal_if_downed(self, p: PlayerState):
+        """A downed (HP<=0) player consumes food on their turn to try to recover."""
+        while p.hp <= 0:
+            food = next((c for c in p.hand if c.type == CardType.FOOD), None)
+            if food is None:
+                break
+            p.hand.remove(food)
+            p.hp += food.value
+            self.log.record(Event("heal", self.state.round_no, p.seat, "public",
+                                   {"food": food.id, "hp": p.hp}))
+
+    def resolve_deaths(self):
+        """End-of-round: anyone still at <=0 HP is eliminated."""
+        for p in self.state.players:
+            if p.alive and p.hp <= 0:
+                p.alive = False
+                self.log.record(Event("eliminated", self.state.round_no, p.seat, "public", {}))
 
 
 def build_observation(engine: Engine, seat: int) -> Observation:

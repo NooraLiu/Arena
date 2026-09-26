@@ -14,14 +14,15 @@ def test_attack_value_adds_weapon():
     assert attack_value(p) == 7
 
 
-def test_resolve_attack_applies_damage_and_eliminates():
+def test_resolve_attack_applies_damage_and_reports_downed_without_finalizing_death():
     atk = _p(1, 5, 4)                 # d4
     dfn = _p(2, 3, 3)
     rng = random.Random(1)            # deterministic roll
     res = resolve_attack(atk, dfn, rng, armor_reduction=2)
     assert 1 <= res["roll"] <= 4
     assert dfn.hp == 3 - res["damage"]
-    assert res["defender_eliminated"] == (dfn.hp <= 0)
+    assert res["downed"] == (dfn.hp <= 0)
+    assert dfn.alive is True           # death is resolved later, not on the hit
 
 
 def test_armor_is_spent_and_reduces_damage():

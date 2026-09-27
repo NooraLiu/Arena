@@ -23,7 +23,8 @@ def resolve_attack(attacker: PlayerState, defender: PlayerState,
     they still get their action this round (heal / retaliate / draw)."""
     faces = max(1, attack_value(attacker))
     roll = rng.randint(1, faces)
-    reduction = armor_reduction if _take_armor(defender) else 0
+    armor = _take_armor(defender)
+    reduction = (armor.value or armor_reduction) if armor else 0   # the card's own value; default if unset
     damage = max(0, roll - reduction)
     defender.hp -= damage
     return {"damage": damage, "roll": roll, "downed": defender.hp <= 0}

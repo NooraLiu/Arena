@@ -27,13 +27,6 @@ from arena.engine import build_observation
 STATE = os.environ.get("ARENA_STATE", "/tmp/arena_game.pkl")
 DECK = "Arena牌堆表.xlsx"
 
-# recommended identity sets by player count (see 推荐身份配置)
-IDENTITY_CONFIG = {
-    5: ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly"],
-    6: ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Negotiator"],
-    7: ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers"],
-}
-
 ZONE_BY_NAME = {"forest": Zone.N, "林": Zone.N, "water": Zone.E, "水": Zone.E,
                 "stone": Zone.S, "石": Zone.S, "city": Zone.W, "城": Zone.W,
                 "center": Zone.CENTER, "中": Zone.CENTER,
@@ -53,11 +46,7 @@ def _load():
 
 def cmd_init(args):
     rng = random.Random(args.seed)
-    eng = new_game(args.players, rng, lambda: None, data_path=DECK)
-    ids = list(IDENTITY_CONFIG[args.players])
-    rng.shuffle(ids)
-    for p, ident in zip(eng.state.players, ids):
-        p.identity = ident
+    eng = new_game(args.players, rng, lambda: None, data_path=DECK)   # assigns identities
     _save(eng)
     print(f"initialized {args.players}-player game (seed {args.seed}); identities dealt secretly.")
 

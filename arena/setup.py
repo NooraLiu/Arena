@@ -4,6 +4,7 @@ from .models import Zone, PlayerState, GameState
 from .players.base import Player
 from .engine import Engine
 from . import config
+from . import identities
 
 
 def new_game(num_players: int, rng: random.Random,
@@ -37,4 +38,7 @@ def new_game(num_players: int, rng: random.Random,
         pbs[seat] = players_factory()
     st = GameState(round_no=1, players=players, decks=decks,
                    open_zones=set(Zone), first_seat=0)
+    ids = identities.assign(num_players, rng)
+    for pl, ident in zip(players, ids):
+        pl.identity = ident
     return Engine(state=st, players_by_seat=pbs, rng=rng)

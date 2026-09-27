@@ -1,4 +1,5 @@
 import random
+from collections import Counter, defaultdict
 from typing import Dict, List
 from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType,
                      PlantBomb, TradeCard, Bomb)
@@ -9,6 +10,7 @@ from .players.base import Observation, Player
 from .events import Event, EventLog
 from . import config
 from . import skills
+from . import identities
 
 
 class Engine:
@@ -18,6 +20,15 @@ class Engine:
         self.players_by_seat = players_by_seat
         self.rng = rng or random.Random()
         self.log = log or EventLog()
+        self.kills = Counter()               # seat -> kills credited
+        self.last_attacker = {}              # victim seat -> last attacker seat
+        self.killer_of = {}                  # dead seat -> killer seat (at death)
+        self.deaths_by_round = []            # [(round, [seats]) ...] in elimination order
+        self.died_with_advanced = {}         # dead seat -> #advanced weapons held at death
+        self.ever_attacked = set()           # seats that ever chose Attack
+        self.trade_partners = defaultdict(set)   # seat -> set of trade partners
+        self.pair_trades = defaultdict(int)      # frozenset({a,b}) -> trade count
+        self.reached_final3 = set()          # seats alive when count first <= 3
 
     def alive_players(self) -> List[PlayerState]:
         return [p for p in self.state.players if p.alive]
@@ -108,6 +119,9 @@ class Engine:
                 target.hand.append(card)
                 self.log.record(Event("trade", self.state.round_no, p.seat, "private",
                                        {"to": target.seat, "card": card.id}))
+                self.trade_partners[p.seat].add(target.seat)
+                self.trade_partners[target.seat].add(p.seat)
+                self.pair_trades[frozenset({p.seat, target.seat})] += 1
 
     def _detonate_bombs(self):
         due = [b for b in self.state.bombs if b.detonate_round == self.state.round_no]
@@ -119,6 +133,7 @@ class Engine:
                     if armor:
                         victim.hand.remove(armor)
                     victim.hp -= max(0, config.BOMB_DAMAGE - reduction)   # no immunity, even the planter
+                    self.last_attacker[victim.seat] = bomb.planter_seat
                     self.log.record(Event("bomb", self.state.round_no, bomb.planter_seat, "public",
                                            {"zone": bomb.zone.value, "hit": victim.seat, "hp": victim.hp}))
         self.state.bombs = [b for b in self.state.bombs if b.detonate_round != self.state.round_no]
@@ -132,6 +147,9 @@ class Engine:
         self.state.round_no += 1
         self.state.first_seat = (self.state.first_seat + 1) % len(self.state.players)
 
+    def identity_winners(self):
+        return identities.check_winners(self)
+
     async def play_game(self):
         elim_round = {}
         while True:
@@ -140,12 +158,14 @@ class Engine:
                 outcome = "draw" if w == -1 else "win"
                 return {"winner": None if w == -1 else w,
                         "rounds": self.state.round_no - 1,
-                        "outcome": outcome, "elim_round_by_seat": elim_round}
+                        "outcome": outcome, "elim_round_by_seat": elim_round,
+                        "identity_winners": self.identity_winners()}
             if self.state.round_no > config.ROUND_CAP:
                 survivors = self.alive_players()
                 top = max(survivors, key=lambda p: p.hp).seat if survivors else None
                 return {"winner": top, "rounds": self.state.round_no - 1,
-                        "outcome": "capped", "elim_round_by_seat": elim_round}
+                        "outcome": "capped", "elim_round_by_seat": elim_round,
+                        "identity_winners": self.identity_winners()}
             before = {p.seat for p in self.alive_players()}
             await self.play_round()
             after = {p.seat for p in self.alive_players()}
@@ -179,6 +199,8 @@ class Engine:
             bonus = self._skill(defender).damage_reduction(defender, defender.zone)
             res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION,
                                  bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p))
+            self.ever_attacked.add(p.seat)
+            self.last_attacker[defender.seat] = p.seat
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",
                                    {"target": defender.seat, **res}))
             # death is not finalized here; end-of-round resolve_deaths() handles it
@@ -208,11 +230,26 @@ class Engine:
             self._eat_one_food(p)
 
     def resolve_deaths(self):
-        """End-of-round: anyone still at <=0 HP is eliminated."""
+        """End-of-round: anyone still at <=0 HP is eliminated (credit kills, record order)."""
+        dead_now = []
         for p in self.state.players:
             if p.alive and p.hp <= 0:
                 p.alive = False
+                dead_now.append(p.seat)
+                killer = self.last_attacker.get(p.seat)
+                if killer is not None and killer != p.seat:
+                    self.kills[killer] += 1
+                    self.killer_of[p.seat] = killer
+                weapons = ([p.equipped_weapon] if p.equipped_weapon else []) + \
+                          [c for c in p.hand if c.type == CardType.WEAPON]
+                self.died_with_advanced[p.seat] = sum(1 for w in weapons if w.value >= 3)
                 self.log.record(Event("eliminated", self.state.round_no, p.seat, "public", {}))
+        if dead_now:
+            self.deaths_by_round.append((self.state.round_no, dead_now))
+        if not self.reached_final3:
+            alive = self.alive_players()
+            if len(alive) <= 3:
+                self.reached_final3 = {q.seat for q in alive}
 
 
 def build_observation(engine: Engine, seat: int) -> Observation:

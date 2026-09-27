@@ -45,6 +45,7 @@ class PlayerState:
     hand: List[Card] = field(default_factory=list)
     equipped_weapon: Optional[Card] = None
     alive: bool = True
+    identity: Optional[str] = None   # hidden-identity card name (secret to other players)
 
 
 @dataclass

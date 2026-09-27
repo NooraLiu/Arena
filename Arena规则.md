@@ -160,13 +160,13 @@ Sponsor 是本作服务"淘汰体验(D)"的核心:被淘汰者不出局,而是�
 | 人数 | 身份配置 | 这一档变化 |
 |---|---|---|
 | 5 | Warrior、Vendetta、Bodyguard、Myrtle、Social Butterfly | 基础 5 张 |
-| 6 | 基础 5 张 + Collector | 临时加 Collector(自成一体,不依赖他人) |
-| 7 | 基础 5 张 + Lovers×2 | Collector 换成 Lovers 一对(成对加入) |
+| 6 | 基础 5 张 + Negotiator | 加 Negotiator |
+| 7 | 基础 5 张 + Lovers×2 | Negotiator 换成 Lovers 一对(成对加入) |
 | 8 | 7 人配置 + Sour Lemon | Lovers 的克星 |
-| 9 | 8 人配置 + Negotiator | 交换、社交 |
-| 10 | 9 人配置 + Judas | Negotiator 的对家 |
-| 11 | 10 人配置 + Pacifier | 人多进前三才难,苟着不再稳赢 |
-| 12 | 全部 12 张(Collector 回归) | |
+| 9 | 8 人配置 + Pacifier | 进前三才难,苟着不再稳赢 |
+| 10 | 9 人配置 + Negotiator | Negotiator 回归 |
+| 11 | 10 人配置 + Collector | |
+| 12 | 全部 12 张 + Judas | Judas(长局回合多,最易达成 3 次交换) |
 
 - **平局从严** ✅:Myrtle 首批死亡多人、Warrior 杀敌数并列,都**不算胜**(提高难度和动力)。
 - **Pacifier 只在 11 人以上推荐** ✅:小局里苟到前三太容易。

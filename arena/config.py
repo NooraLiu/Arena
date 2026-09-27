@@ -9,7 +9,7 @@ DEFAULT_CHARACTERS: List[Character] = [
 ]
 WEAPONS = [("knife", 1), ("staff", 2), ("crossbow", 3), ("rifle", 4)]
 DRAW_COUNT = 1
-HAND_LIMIT = 5
+HAND_LIMIT = 4        # 🔧 max hand size WITHOUT skills; equipped weapon does NOT count. Tune later.
 ARMOR_REDUCTION = 2   # flat damage reduction when armor spent
 FOOD_HEAL = 2
 SHRINK_TRIGGER = 5    # start shrinking when alive count <= this

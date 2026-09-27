@@ -110,11 +110,13 @@ class Engine:
         if isinstance(action, Draw):
             card = deck_draw(self.state, p.zone)
             if card is not None:
-                p.hand.append(card)
-                if card.type == CardType.WEAPON and (
-                        p.equipped_weapon is None or card.value > p.equipped_weapon.value):
-                    p.equipped_weapon = card
-                enforce_hand_limit(p, config.HAND_LIMIT)
+                is_upgrade = card.type == CardType.WEAPON and (
+                    p.equipped_weapon is None or card.value > p.equipped_weapon.value)
+                if is_upgrade:
+                    p.equipped_weapon = card      # goes to the equip slot, not the hand
+                else:                              # (a worse weapon is kept as a spare in hand)
+                    p.hand.append(card)
+                    enforce_hand_limit(p, config.HAND_LIMIT)
             self.log.record(Event("draw", self.state.round_no, p.seat, "public",
                                    {"got": card.id if card else None}))
         elif isinstance(action, Attack):

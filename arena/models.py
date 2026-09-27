@@ -62,6 +62,25 @@ class Attack:
     target_seat: int
 
 
+# ---- additional actions (taken in addition to the main draw/attack) ----
+@dataclass
+class PlantBomb:
+    target_zone: "Zone"
+
+
+@dataclass
+class TradeCard:
+    to_seat: int
+    card_id: str
+
+
+@dataclass
+class Bomb:
+    zone: Zone
+    detonate_round: int
+    planter_seat: int
+
+
 @dataclass
 class GameState:
     round_no: int
@@ -69,3 +88,4 @@ class GameState:
     decks: Dict[Zone, List[Card]]
     open_zones: Set[Zone]
     first_seat: int
+    bombs: List["Bomb"] = field(default_factory=list)

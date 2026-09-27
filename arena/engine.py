@@ -1,6 +1,7 @@
 import random
 from typing import Dict, List
-from .models import Zone, PlayerState, GameState, Move, Draw, Attack, CardType
+from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType,
+                     PlantBomb, TradeCard, Bomb)
 from .map import legal_moves
 from .deck import draw as deck_draw, enforce_hand_limit
 from .combat import resolve_attack
@@ -55,6 +56,8 @@ class Engine:
                 if isinstance(action, Attack) and action.target_seat not in obs.attackable_seats:
                     action = Draw()
             self._apply(p, action)
+            for extra in await self.players_by_seat[p.seat].decide_additional_actions(obs):
+                self._apply_additional(p, extra)
 
     def _lowest_hp(self, seats):
         return sorted(seats, key=lambda s: self._p(s).hp)[0]
@@ -82,8 +85,47 @@ class Engine:
             return -1
         return None
 
+    def _apply_additional(self, p: PlayerState, action):
+        if isinstance(action, PlantBomb):
+            skill = self._skill(p)
+            if not skill.can_make_bomb():
+                return
+            need = skill.bomb_fragments()
+            frags = [c for c in p.hand if c.type == CardType.AMMO]
+            if len(frags) < need:
+                return
+            for c in frags[:need]:
+                p.hand.remove(c)
+            self.state.bombs.append(
+                Bomb(zone=action.target_zone, detonate_round=self.state.round_no + 1, planter_seat=p.seat))
+            self.log.record(Event("plant_bomb", self.state.round_no, p.seat, "private",
+                                   {"zone": action.target_zone.value}))
+        elif isinstance(action, TradeCard):
+            card = next((c for c in p.hand if c.id == action.card_id), None)
+            target = next((q for q in self.state.players if q.seat == action.to_seat and q.alive), None)
+            if card is not None and target is not None:
+                p.hand.remove(card)
+                target.hand.append(card)
+                self.log.record(Event("trade", self.state.round_no, p.seat, "private",
+                                       {"to": target.seat, "card": card.id}))
+
+    def _detonate_bombs(self):
+        due = [b for b in self.state.bombs if b.detonate_round == self.state.round_no]
+        for bomb in due:
+            for victim in self.alive_players():
+                if victim.zone == bomb.zone:
+                    armor = next((c for c in victim.hand if c.type == CardType.ARMOR), None)
+                    reduction = armor.value if armor else 0
+                    if armor:
+                        victim.hand.remove(armor)
+                    victim.hp -= max(0, config.BOMB_DAMAGE - reduction)   # no immunity, even the planter
+                    self.log.record(Event("bomb", self.state.round_no, bomb.planter_seat, "public",
+                                           {"zone": bomb.zone.value, "hit": victim.seat, "hp": victim.hp}))
+        self.state.bombs = [b for b in self.state.bombs if b.detonate_round != self.state.round_no]
+
     async def play_round(self):
         await self.movement_phase()
+        self._detonate_bombs()         # bombs planted last round go off after movement
         await self.action_phase()
         self.resolve_deaths()          # finalize deaths only after everyone has acted
         self.shrink_step()

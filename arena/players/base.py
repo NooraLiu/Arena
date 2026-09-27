@@ -17,3 +17,7 @@ class Player:
 
     async def decide_action(self, obs: "Observation") -> Union[Draw, Attack]:
         raise NotImplementedError
+
+    async def decide_additional_actions(self, obs: "Observation") -> list:
+        """Extra actions beyond the main one (plant bomb, trade card, ...). Default none."""
+        return []

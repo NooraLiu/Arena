@@ -38,6 +38,12 @@ class Skill:
         """Whether this player's attacks bypass the target's armor."""
         return False
 
+    def can_make_bomb(self) -> bool:
+        return True
+
+    def bomb_fragments(self) -> int:
+        return config.BOMB_FRAGMENTS
+
 
 class NoSkill(Skill):
     pass
@@ -68,8 +74,15 @@ class Fae(Skill):
 
 
 class Cato(Skill):
-    # 无法使用碎片拼成炸药。(bomb system pending; flag consumed once bombs exist)
-    can_make_bomb = False
+    # 15/4,但无法用碎片拼成炸弹。
+    def can_make_bomb(self):
+        return False
+
+
+class Garcia(Skill):
+    # 只需要 2 枚碎片就可以制成一个炸弹。
+    def bomb_fragments(self):
+        return 2
 
 
 _REGISTRY = {
@@ -77,6 +90,7 @@ _REGISTRY = {
     "Elliot": Elliot,
     "Fae": Fae,
     "Cato": Cato,
+    "Garcia": Garcia,
 }
 
 

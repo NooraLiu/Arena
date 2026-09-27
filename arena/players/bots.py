@@ -1,6 +1,7 @@
 import random
 from typing import Union
-from ..models import Zone, Move, Draw, Attack
+from collections import Counter
+from ..models import Zone, Move, Draw, Attack, CardType, PlantBomb
 from ..combat import attack_value
 from .. import skills
 from .base import Player, Observation
@@ -105,3 +106,18 @@ class SmartBot(Player):
 
         # 4) nothing else useful -> draw
         return Draw()
+
+    async def decide_additional_actions(self, obs: Observation):
+        me = obs.me
+        skill = skills.for_character(me.character.name)
+        if not skill.can_make_bomb():
+            return []
+        frags = sum(1 for c in me.hand if c.type == CardType.AMMO)
+        if frags < skill.bomb_fragments():
+            return []
+        # bomb the most-crowded enemy zone that isn't mine
+        counts = Counter(p.zone for p in obs.state.players
+                         if p.alive and p.seat != me.seat and p.zone != me.zone)
+        if counts and counts.most_common(1)[0][1] >= 2:
+            return [PlantBomb(counts.most_common(1)[0][0])]
+        return []

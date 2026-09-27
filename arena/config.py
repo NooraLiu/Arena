@@ -14,6 +14,8 @@ ARMOR_REDUCTION = 2   # flat damage reduction when armor spent
 FOOD_HEAL = 2
 SHRINK_TRIGGER = 5    # start shrinking when alive count <= this
 ROUND_CAP = 100       # hard termination guarantee
+BOMB_DAMAGE = 6       # everyone in the target zone; armor reduces
+BOMB_FRAGMENTS = 3    # fragments to build a bomb (Garcia: 2)
 
 
 def _weapon(name, bonus, i):

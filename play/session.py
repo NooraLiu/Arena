@@ -178,6 +178,68 @@ def cmd_result(args):
         print(f"  s{p.seat} {p.character.name:8} [{p.identity}] alive={p.alive} -> {tracks or '-'}")
 
 
+
+WIN_COND = {
+ "Warrior":"杀敌数唯一最多者胜(并列不算)。",
+ "Vendetta":"只有亲手杀死你右边的玩家才胜;被别人抢杀就输。",
+ "Bodyguard":"保护 Vendetta 的复仇对象存活(结束时指认),或亲手杀死 Vendetta。",
+ "Myrtle":"第一个被淘汰(且唯一)即胜。",
+ "Social Butterfly":"正确认出任意 3 名玩家的身份即胜(死前指认也算)。",
+ "Lovers":"你和另一名 Lovers 互为恋人;任一方活到最后,两人同赢。",
+ "Sour Lemon":"认出并杀死一名 Lovers 即胜。",
+ "Pacifist":"进入最后 3 人时从未主动攻击即胜。",
+ "Negotiator":"与至少(人数-2)名不同玩家各完成一次交换即胜。",
+ "Collector":"死时持有 3 件高级武器(中心武器)即胜。",
+ "Judas":"亲手杀死一名与你交换过 3 次手牌的玩家即胜。",
+}
+LIVE = "play/live"
+
+def cmd_board(args):
+    move_view = getattr(args, "phase", None) == "move"
+
+    import os as _os
+    eng = _load(); st = eng.state
+    _os.makedirs(LIVE, exist_ok=True)
+    # public board
+    phase_note = " · 移动决策阶段:只能依据【上一回合位置+公开喊话】,本回合去向是同时暗选的" if move_view else ""
+    lines = [f"# Arena 实时战况(公开) — 第 {st.round_no} 回合{phase_note}",
+             f"开放区域: {', '.join(NAME_BY_ZONE[z] for z in st.open_zones)}", "", "## 场上(公开)"]
+    hide_pos = move_view and st.round_no == 1   # round-1 placement is blind & simultaneous
+    for p in st.players:
+        tag = "存活" if p.alive else "已淘汰"
+        eqp = p.equipped_weapon.name if p.equipped_weapon else "无"
+        zone = "位置未知(第一轮同时暗选,谁都不知道别人去哪)" if hide_pos else NAME_BY_ZONE[p.zone]
+        lines.append(f"- s{p.seat} {p.character.name}: {p.hp}血 | {zone} | 装备:{eqp} | {tag}")
+    lines += ["", "## 公开喊话"]
+    for m in eng.messages:
+        if m.to is None:
+            lines.append(f"- r{m.round_no} s{m.sender}: {m.text}")
+    lines += ["", "## 最近公开事件(攻击/淘汰/炸弹)"]
+    for e in eng.log.events[-40:]:
+        if e.type == "attack":
+            lines.append(f"- r{e.round_no} s{e.actor} 攻击 s{e.payload['target']}: 伤害{e.payload['damage']}")
+        elif e.type == "eliminated":
+            lines.append(f"- r{e.round_no} ☠ s{e.actor} 被淘汰")
+        elif e.type == "bomb":
+            lines.append(f"- r{e.round_no} 炸弹在 {e.payload['zone']} 命中 s{e.payload['hit']}")
+    open(f"{LIVE}/board.md","w",encoding="utf-8").write("\n".join(lines)+"\n")
+    # private files
+    for p in st.players:
+        nb = _neighbors(eng, p.seat)
+        pl = [f"# 你是 s{p.seat} {p.character.name}(私密,只有你能看)",
+              f"数值: {p.hp}血 / 攻击{p.character.base_attack} | 位置:{NAME_BY_ZONE[p.zone]}",
+              f"左邻 s{nb['left']} · 右邻 s{nb['right']}",
+              f"手牌: {[c.name for c in p.hand]} | 装备:{p.equipped_weapon.name if p.equipped_weapon else '无'}",
+              "", f"## 你的秘密身份: {p.identity}", f"胜利条件: {WIN_COND.get(p.identity,'?')}",
+              "", "## 你收到/发出的私聊"]
+        for m in eng.messages:
+            if m.to == p.seat or (m.sender == p.seat and m.to is not None):
+                who = f"s{m.sender}->你" if m.to==p.seat else f"你->s{m.to}"
+                pl.append(f"- r{m.round_no} {who}: {m.text}")
+        open(f"{LIVE}/seat_{p.seat}.md","w",encoding="utf-8").write("\n".join(pl)+"\n")
+    print(f"wrote {LIVE}/board.md and seat_0..{len(st.players)-1}.md")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -191,10 +253,11 @@ def main():
     pin = sub.add_parser("inbox"); pin.add_argument("seat", type=int)
     pd = sub.add_parser("declare"); pd.add_argument("seat", type=int); pd.add_argument("guesses", nargs="+")
     sub.add_parser("result")
+    pb = sub.add_parser("board"); pb.add_argument("phase", nargs="?", default=None)
     args = ap.parse_args()
     {"init": cmd_init, "snapshot": cmd_snapshot, "move": cmd_move,
      "detonate": cmd_detonate, "act": cmd_act, "endround": cmd_endround,
-     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result}[args.cmd](args)
+     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board}[args.cmd](args)
 
 
 if __name__ == "__main__":

@@ -43,6 +43,7 @@
   .think{white-space:pre-wrap;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px;color:#cdd3f0;max-height:180px;overflow:auto}
   .cfg{display:none;gap:6px;flex-wrap:wrap;margin-top:8px}
   .cfg .seatcfg{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12px}
+  #actlog{max-height:300px;overflow:auto}
   .empty{color:var(--dim);text-align:center;padding:26px 0}
 </style>
 </head>
@@ -75,7 +76,7 @@ function buildCfg(n){
   const saved=JSON.parse(localStorage.getItem("arena_models")||"{}");
   for(let s=0;s<n;s++){
     const wrap=document.createElement("span"); wrap.className="seatcfg";
-    const opts=MODELS.map(m=>`<option ${saved[s]===m?"selected":""}>${m}</option>`).join("");
+    const opts=MODELS.map(m=>`<option ${((saved[s]||"haiku-4.5")===m)?"selected":""}>${m}</option>`).join("");
     wrap.innerHTML=`s${s} <select data-seat="${s}">${opts}</select>`;
     cfg.appendChild(wrap);
   }
@@ -88,6 +89,19 @@ document.getElementById("cfgBtn").addEventListener("click",()=>{
   const c=document.getElementById("cfg"); c.style.display=c.style.display==="flex"?"none":"flex";
 });
 
+function actText(e){const p=e.payload||{};switch(e.type){
+  case "attack":return `${nm(e.actor)} ⚔ ${nm(p.target)} · 掷${p.roll} 伤${p.damage}${p.downed?" (倒地)":""}`;
+  case "draw":return `${nm(e.actor)} 抽牌 ${p.got?("("+p.got+")"):"(空)"}`;
+  case "eliminated":return `<span style="color:var(--dead)">☠ ${nm(e.actor)} 淘汰</span>`;
+  case "zone_closed":return `<span style="color:var(--zone)">⊘ 缩圈:关闭 ${ZONE[p.zone]||p.zone}</span>`;
+  case "bomb":return `💥 ${ZONE[p.zone]||p.zone} 炸 ${nm(p.hit)}`;
+  case "plant_bomb":return `${nm(e.actor)} 埋炸弹`;
+  case "poison":return `<span style="color:var(--ok)">☠ ${nm(e.actor)} 中毒→${p.hp}</span>`;
+  case "heal":return `${nm(e.actor)} 回血→${p.hp}`;
+  case "steal":return `${nm(e.actor)} 偷 ${nm(p.from)} 一张牌`;
+  case "craft":return `${nm(e.actor)} 合成装备`;
+  case "trade":return `${nm(e.actor)}→${nm(p.to)} 给牌`;
+  default:return e.type;}}
 function evText(e){const p=e.payload||{};switch(e.type){
   case "attack":return `${nm(e.actor)} 攻击 ${nm(p.target)} 伤害${p.damage}`;
   case "eliminated":return `☠ ${nm(e.actor)} 被淘汰`;
@@ -117,7 +131,8 @@ function render(){
   const grid=document.createElement("div");grid.className="grid";
   grid.innerHTML=`<div><div class="map" id="map"></div>
       <div class="panel detail" id="detail" style="margin-top:12px"></div></div>
-    <div><div class="panel" id="board"></div><div class="panel" id="dm"></div></div>`;
+    <div><div class="panel" id="board"></div><div class="panel" id="dm"></div>
+      <div class="panel" id="actlog"></div></div>`;
   out.appendChild(grid);
   const upd=()=>renderRound();
   step.querySelector("#prev").onclick=()=>{IDX=Math.max(0,IDX-1);upd();};
@@ -150,6 +165,18 @@ function renderRound(){
   board.innerHTML=`<h3>📢 公开留言板</h3>`+(pub.length?pub.map(e=>`<div class="msg"><span class="who" style="color:${COLOR[e.actor]}">${nm(e.actor)}</span>(r${e.round}): ${e.payload.text}`+`</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无 · bot 局无发言)</div>`);
   const dmb=document.getElementById("dm");
   dmb.innerHTML=`<h3>✉️ 私信板(观战全见)</h3>`+(dm.length?dm.map(e=>`<div class="msg dm">${nm(e.actor)}→${nm(e.payload.to)}(r${e.round}): ${e.payload.text}</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无)</div>`);
+  // action log grouped by round
+  const ACT=new Set(["attack","draw","eliminated","zone_closed","bomb","plant_bomb","poison","heal","steal","craft","trade"]);
+  const acts=(d.events||[]).filter(e=>ACT.has(e.type));
+  const byR={};acts.forEach(e=>{(byR[e.round]=byR[e.round]||[]).push(e);});
+  const al=document.getElementById("actlog");
+  let html=`<h3>📜 行动记录</h3>`;
+  Object.keys(byR).map(Number).sort((a,b)=>a-b).forEach(rn=>{
+    const cur=rn===snap.round?' style="color:var(--win)"':'';
+    html+=`<div${cur} style="font-size:12px;color:var(--dim);margin:6px 0 2px">— 第 ${rn} 回合 —</div>`;
+    byR[rn].forEach(e=>{html+=`<div class="msg" style="border:none;padding:1px 0">${actText(e)}</div>`;});
+  });
+  al.innerHTML=html;
   renderDetail();
 }
 

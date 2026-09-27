@@ -62,7 +62,12 @@ class Engine:
         for p in self.alive_players():
             obs = build_observation(self, p.seat)
             mv: Move = await self.players_by_seat[p.seat].decide_move(obs)
-            zone = mv.zone if mv.zone in obs.legal_move_zones else p.zone
+            if mv.zone in obs.legal_move_zones:
+                zone = mv.zone
+            elif p.zone in self.state.open_zones:
+                zone = p.zone                              # stay if current zone still open
+            else:
+                zone = obs.legal_move_zones[0]             # forced out of a closed zone
             chosen[p.seat] = zone
         for seat, zone in chosen.items():          # apply after all decided
             self._p(seat).zone = zone
@@ -98,13 +103,12 @@ class Engine:
             return
         for z in self._SHRINK_ORDER:
             if z in self.state.open_zones:
-                self.state.open_zones.discard(z)
-                for p in self.alive_players():
-                    if p.zone == z:
-                        p.zone = Zone.CENTER
+                self.state.open_zones.discard(z)      # remove from the map; do NOT teleport anyone
                 self.log.record(Event("zone_closed", self.state.round_no, None,
                                        "public", {"zone": z.value}))
                 break
+        # occupants of a now-closed zone are not moved; next round they must pick
+        # an adjacent open zone (legal_moves excludes the closed zone, so no "stay").
 
     def check_winner(self):
         alive = self.alive_players()

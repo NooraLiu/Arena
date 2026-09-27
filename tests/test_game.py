@@ -25,9 +25,18 @@ def test_winner_is_last_survivor_when_win():
             assert alive == [result["winner"]]
 
 
-def test_shrink_pushes_players_out_of_closed_zone_center_never_closes():
+def test_shrink_closes_a_zone_without_teleporting_occupants():
     eng = _game(2)
     for p in eng.state.players[5:]:
         p.alive = False
+    # put a survivor in an outer zone that will close (W = city is first in shrink order)
+    from arena.map import legal_moves
+    victim = eng.alive_players()[0]
+    victim.zone = Zone.W
     eng.shrink_step()
-    assert Zone.CENTER in eng.state.open_zones
+    assert Zone.W not in eng.state.open_zones        # zone removed from the map
+    assert Zone.CENTER in eng.state.open_zones        # center never closes
+    assert victim.zone == Zone.W                      # NOT teleported — still standing there
+    # next round the occupant of the closed zone must move out (can't stay)
+    moves = legal_moves(victim.zone, eng.state.open_zones)
+    assert Zone.W not in moves and len(moves) >= 1     # only adjacent OPEN zones, no "stay"

@@ -90,7 +90,9 @@ def cmd_move(args):
         target = _zone(zname)
         allowed = set(st.open_zones) if st.round_no == 1 else set(legal_moves(p.zone, st.open_zones))
         if target not in allowed:
-            print(f"! seat {p.seat} illegal move to {zname}; staying at {NAME_BY_ZONE[p.zone]}")
+            fallback = p.zone if p.zone in st.open_zones else (allowed[0] if allowed else p.zone)
+            print(f"! seat {p.seat} illegal move to {zname}; using {NAME_BY_ZONE[fallback]}")
+            p.zone = fallback
             continue
         p.zone = target
     _save(eng)

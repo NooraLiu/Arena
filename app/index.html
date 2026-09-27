@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena 对战台</title>
+<style>
+  :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
+        --hit:#ff6b6b;--dead:#ff3b57;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,"PingFang SC",system-ui,sans-serif}
+  header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  h1{font-size:17px;margin:0 10px 0 0}
+  select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 11px}
+  button{cursor:pointer;background:#2b3566;border-color:#3a469a;font-weight:600}
+  button:hover{background:#33409a} button:disabled{opacity:.5;cursor:default}
+  button.ghost{background:var(--card);border-color:var(--line);font-weight:400}
+  label{color:var(--dim);font-size:13px}
+  main{max-width:1080px;margin:0 auto;padding:16px}
+  .winners{background:#20264a;border:1px solid #3a469a;border-radius:12px;padding:12px 15px;margin:0 0 14px}
+  .winners h2{margin:0 0 6px;font-size:15px;color:var(--win)} .wrow{margin:2px 0}
+  .stepper{display:flex;gap:10px;align-items:center;margin:10px 0}
+  .stepper input[type=range]{flex:1}
+  .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:14px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  /* map cross */
+  .map{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(84px,auto));gap:8px}
+  .zone{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px}
+  .zone.closed{opacity:.32;filter:grayscale(.6)}
+  .zone .zt{font-size:12px;color:var(--dim);margin-bottom:6px}
+  .zc{grid-column:2;grid-row:2;border-color:#3a469a;background:#1c2140}
+  .zn{grid-column:2;grid-row:1}.ze{grid-column:3;grid-row:2}.zs{grid-column:2;grid-row:3}.zw{grid-column:1;grid-row:2}
+  .tok{display:inline-block;margin:3px;padding:3px 8px;border-radius:8px;border:2px solid;background:#0e1striking;background:#0e1226;font-size:12.5px;cursor:pointer}
+  .tok .hp{color:var(--dim);font-size:11px}
+  .tok.dead{opacity:.4;text-decoration:line-through}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  .panel h3{margin:0 0 8px;font-size:14px;color:var(--dim)}
+  .msg{padding:3px 0;border-bottom:1px solid #22273f;font-size:13px}
+  .msg:last-child{border:none}
+  .msg .who{font-weight:600}
+  .msg.dm{color:var(--dm)}
+  .detail .row{margin:4px 0} .detail .k{color:var(--dim);font-size:12px}
+  .think{white-space:pre-wrap;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12.5px;color:#cdd3f0;max-height:180px;overflow:auto}
+  .cfg{display:none;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .cfg .seatcfg{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12px}
+  .empty{color:var(--dim);text-align:center;padding:26px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ Arena 对战台</h1>
+  <label>人数 <select id="players"><option>5</option><option selected>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></label>
+  <button id="go">开始新一局(bot)</button>
+  <button id="load" class="ghost">读取实时对局</button>
+  <button id="cfgBtn" class="ghost">⚙ 每座位模型</button>
+  <span id="status" style="color:var(--dim)"></span>
+  <div class="cfg" id="cfg"></div>
+</header>
+<main>
+  <div id="out"><div class="empty">点「开始新一局」看 bot 对局(地图/回合/角色面板全可用),或「读取实时对局」查看正在进行的 LLM 对局。</div></div>
+</main>
+<script>
+const COLORS=["#6ea8fe","#7ee787","#ffd166","#ff8fab","#c3a6ff","#5ce1e6","#ffa94d","#b0bec5","#f78fb3","#a0e57c","#e0aaff","#74c0fc"];
+const ZONE={center:"中心",forest:"林区",water:"水区",stone:"石区",city:"城区",n:"林区",e:"水区",s:"石区",w:"城区"};
+const CELL={center:"zc",forest:"zn",water:"ze",stone:"zs",city:"zw",n:"zn",e:"ze",s:"zs",w:"zw"};
+const MODELS=["opus-5","opus-4.8","sonnet-5","haiku-4.5","fable-5.1"];
+let DATA=null, IDX=0, NAME={}, COLOR={}, sel=null;
+
+function norm(z){return ({n:"forest",e:"water",s:"stone",w:"city"})[z]||z;}
+function nm(s){return s==null?"":(NAME[s]||("s"+s));}
+
+// ---- config: per-seat model (stored locally; applies to LLM games) ----
+function buildCfg(n){
+  const cfg=document.getElementById("cfg"); cfg.innerHTML="";
+  const saved=JSON.parse(localStorage.getItem("arena_models")||"{}");
+  for(let s=0;s<n;s++){
+    const wrap=document.createElement("span"); wrap.className="seatcfg";
+    const opts=MODELS.map(m=>`<option ${saved[s]===m?"selected":""}>${m}</option>`).join("");
+    wrap.innerHTML=`s${s} <select data-seat="${s}">${opts}</select>`;
+    cfg.appendChild(wrap);
+  }
+  cfg.querySelectorAll("select").forEach(se=>se.addEventListener("change",()=>{
+    const m=JSON.parse(localStorage.getItem("arena_models")||"{}"); m[se.dataset.seat]=se.value;
+    localStorage.setItem("arena_models",JSON.stringify(m));
+  }));
+}
+document.getElementById("cfgBtn").addEventListener("click",()=>{
+  const c=document.getElementById("cfg"); c.style.display=c.style.display==="flex"?"none":"flex";
+});
+
+function evText(e){const p=e.payload||{};switch(e.type){
+  case "attack":return `${nm(e.actor)} 攻击 ${nm(p.target)} 伤害${p.damage}`;
+  case "eliminated":return `☠ ${nm(e.actor)} 被淘汰`;
+  case "zone_closed":return `缩圈:关闭 ${ZONE[p.zone]||p.zone}`;
+  case "bomb":return `💥 ${ZONE[p.zone]||p.zone} 炸弹命中 ${nm(p.hit)}`;
+  default:return `${nm(e.actor)} ${e.type}`;}}
+
+function render(){
+  const d=DATA, out=document.getElementById("out"); out.innerHTML="";
+  NAME={};COLOR={};d.roster.forEach((p,i)=>{NAME[p.seat]=p.name;COLOR[p.seat]=COLORS[p.seat%COLORS.length];});
+  // winners
+  const w=document.createElement("div");w.className="winners";
+  const surv=d.survivor==null?"无(平局)":nm(d.survivor);
+  let h=`<h2>🏆 ${d.rounds} 回合 · ${d.outcome} · 存活冠军:${surv}</h2>`;let any=false;
+  for(const s in (d.winners||{})){const t=d.winners[s];if(t&&t.length){any=true;h+=`<div class="wrow">• <b style="color:${COLOR[+s]}">${nm(+s)}</b> 赢得:${t.join("、")}</div>`;}}
+  if(!any)h+=`<div class="wrow" style="color:var(--dim)">(对局进行中或无人达成)</div>`;
+  w.innerHTML=h;out.appendChild(w);
+  // stepper
+  const snaps=d.snapshots||[];const maxi=Math.max(0,snaps.length-1);IDX=Math.min(IDX,maxi);
+  const step=document.createElement("div");step.className="stepper";
+  step.innerHTML=`<button class="ghost" id="prev">◀</button>
+    <span id="rlabel" style="min-width:70px;text-align:center"></span>
+    <input type="range" id="slider" min="0" max="${maxi}" value="${IDX}">
+    <button class="ghost" id="next">▶</button>`;
+  out.appendChild(step);
+  // body grid
+  const grid=document.createElement("div");grid.className="grid";
+  grid.innerHTML=`<div><div class="map" id="map"></div>
+      <div class="panel detail" id="detail" style="margin-top:12px"></div></div>
+    <div><div class="panel" id="board"></div><div class="panel" id="dm"></div></div>`;
+  out.appendChild(grid);
+  const upd=()=>renderRound();
+  step.querySelector("#prev").onclick=()=>{IDX=Math.max(0,IDX-1);upd();};
+  step.querySelector("#next").onclick=()=>{IDX=Math.min(maxi,IDX+1);upd();};
+  step.querySelector("#slider").oninput=(e)=>{IDX=+e.target.value;upd();};
+  renderRound();
+}
+
+function renderRound(){
+  const d=DATA,snaps=d.snapshots||[];const snap=snaps[IDX]||{players:[],open_zones:[]};
+  document.getElementById("rlabel").textContent = IDX===0?"布局前":("第 "+snap.round+" 回合");
+  document.getElementById("slider").value=IDX;
+  const open=new Set(snap.open_zones.map(norm));
+  // map
+  const zones=["forest","water","stone","city","center"];
+  const byZone={};zones.forEach(z=>byZone[z]=[]);
+  snap.players.forEach(p=>{if(p.alive&&byZone[norm(p.zone)])byZone[norm(p.zone)].push(p);});
+  const map=document.getElementById("map");map.innerHTML="";
+  zones.forEach(z=>{const cell=document.createElement("div");
+    cell.className=`zone ${CELL[z]}`+((open.has(z)||z==="center")?"":" closed");
+    let toks=byZone[z].map(p=>`<span class="tok" data-seat="${p.seat}" style="border-color:${COLOR[p.seat]}">${nm(p.seat)} <span class="hp">${Math.max(0,p.hp)}</span></span>`).join("");
+    cell.innerHTML=`<div class="zt">${ZONE[z]}</div>${toks||'<span style="color:var(--dim);font-size:12px">—</span>'}`;
+    map.appendChild(cell);});
+  map.querySelectorAll(".tok").forEach(t=>t.onclick=()=>{sel=+t.dataset.seat;renderDetail();});
+  // messages up to this round
+  const upto=snap.round;
+  const says=(d.events||[]).filter(e=>e.type==="say"&&e.round<=upto);
+  const pub=says.filter(e=>e.payload.to==null),dm=says.filter(e=>e.payload.to!=null);
+  const board=document.getElementById("board");
+  board.innerHTML=`<h3>📢 公开留言板</h3>`+(pub.length?pub.map(e=>`<div class="msg"><span class="who" style="color:${COLOR[e.actor]}">${nm(e.actor)}</span>(r${e.round}): ${e.payload.text}`+`</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无 · bot 局无发言)</div>`);
+  const dmb=document.getElementById("dm");
+  dmb.innerHTML=`<h3>✉️ 私信板(观战全见)</h3>`+(dm.length?dm.map(e=>`<div class="msg dm">${nm(e.actor)}→${nm(e.payload.to)}(r${e.round}): ${e.payload.text}</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无)</div>`);
+  renderDetail();
+}
+
+function renderDetail(){
+  const d=DATA,snap=(d.snapshots||[])[IDX]||{players:[]};
+  const det=document.getElementById("detail");
+  if(sel==null){det.innerHTML=`<h3>👤 角色面板</h3><div style="color:var(--dim);font-size:13px">点地图上的角色查看手牌/装备/身份/思考。</div>`;return;}
+  const info=d.roster.find(p=>p.seat===sel)||{};
+  const ps=snap.players.find(p=>p.seat===sel)||{};
+  const think=((d.thinking||{})[sel]||{})[snap.round]||"";
+  det.innerHTML=`<h3>👤 ${nm(sel)} <span style="color:${COLOR[sel]}">■</span></h3>
+    <div class="row"><span class="k">身份</span> <b style="color:var(--win)">${info.identity||"?"}</b> · ${info.hp_max}血/攻${info.attack}</div>
+    <div class="row"><span class="k">当前(第${snap.round}回合)</span> ${ps.hp!=null?ps.hp+"血":""} · ${ZONE[norm(ps.zone||"")]||""} ${ps.alive===false?"· 已淘汰":""}</div>
+    <div class="row"><span class="k">装备</span> ${ps.equipped||"无"}</div>
+    <div class="row"><span class="k">手牌</span> ${(ps.hand&&ps.hand.length)?ps.hand.join("、"):"空"}</div>
+    <div class="row"><span class="k">思考过程</span></div>
+    <div class="think">${think||"(bot 无文字思考;接入 LLM agent 后,这里显示该角色本回合的推理)"}</div>`;
+}
+
+async function loadJSON(url){
+  const st=document.getElementById("status");st.textContent="加载中…";
+  try{const r=await fetch(url,{cache:"no-store"});const d=await r.json();
+    if(d.error){st.textContent="错误:"+d.error;return;}
+    DATA=d;IDX=(d.snapshots||[]).length-1;sel=null;render();
+    st.textContent=(d.seed!=null?("种子 "+d.seed):"实时对局");
+  }catch(e){st.textContent="失败:"+e;}
+}
+const btn=document.getElementById("go");
+btn.addEventListener("click",async()=>{btn.disabled=true;
+  await loadJSON(`/api/new_game?players=${document.getElementById("players").value}`);btn.disabled=false;});
+document.getElementById("load").addEventListener("click",()=>loadJSON("/live/game.json"));
+buildCfg(12);
+</script>
+</body>
+</html>

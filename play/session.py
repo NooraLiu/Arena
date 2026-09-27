@@ -283,11 +283,12 @@ def cmd_export(args):
         try: thinking={int(k):{int(rr):tt for rr,tt in v.items()} for k,v in _json.load(open(tf,encoding="utf-8")).items()}
         except Exception: thinking={}
     w=eng.check_winner()
+    over = w is not None                       # winners are only judged at game end
     out={"roster":roster,"snapshots":snaps,"events":events,
-         "winners":{str(k):v for k,v in eng.identity_winners().items()},
+         "winners":({str(k):v for k,v in eng.identity_winners().items()} if over else {}),
          "thinking":{str(k):{str(rr):tt for rr,tt in v.items()} for k,v in thinking.items()},
-         "outcome":("进行中" if w is None else ("draw" if w==-1 else "win")),
-         "rounds":st.round_no-1,"survivor":(None if (w is None or w==-1) else w)}
+         "outcome":("进行中" if not over else ("draw" if w==-1 else "win")),
+         "rounds":st.round_no-1,"survivor":(None if not over or w==-1 else w)}
     _json.dump(out, open("app/live/game.json","w",encoding="utf-8"), ensure_ascii=False)
     print("wrote app/live/game.json (%d snapshots, %d events)"%(len(snaps),len(events)))
 

@@ -114,10 +114,14 @@ function render(){
   NAME={};COLOR={};d.roster.forEach((p,i)=>{NAME[p.seat]=p.name;COLOR[p.seat]=COLORS[p.seat%COLORS.length];});
   // winners
   const w=document.createElement("div");w.className="winners";
-  const surv=d.survivor==null?"无(平局)":nm(d.survivor);
-  let h=`<h2>🏆 ${d.rounds} 回合 · ${d.outcome} · 存活冠军:${surv}</h2>`;let any=false;
+  const inprog=(d.outcome==="进行中");
+  let h;
+  if(inprog){h=`<h2>⏳ 第 ${d.rounds} 回合 · 进行中 · 身份胜负待终局结算</h2>`;}
+  else{const surv=d.survivor==null?"无(平局)":nm(d.survivor);
+    h=`<h2>🏆 ${d.rounds} 回合 · ${d.outcome} · 存活冠军:${surv}</h2>`;}
+  let any=false;
   for(const s in (d.winners||{})){const t=d.winners[s];if(t&&t.length){any=true;h+=`<div class="wrow">• <b style="color:${COLOR[+s]}">${nm(+s)}</b> 赢得:${t.join("、")}</div>`;}}
-  if(!any)h+=`<div class="wrow" style="color:var(--dim)">(对局进行中或无人达成)</div>`;
+  if(!any&&!inprog)h+=`<div class="wrow" style="color:var(--dim)">(无人达成身份胜利)</div>`;
   w.innerHTML=h;out.appendChild(w);
   // stepper
   const snaps=d.snapshots||[];const maxi=Math.max(0,snaps.length-1);IDX=Math.min(IDX,maxi);

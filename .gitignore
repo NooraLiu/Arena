@@ -5,3 +5,5 @@ __pycache__/
 logs/
 *.jsonl
 .superpowers/
+play/agents/
+play/*.pkl

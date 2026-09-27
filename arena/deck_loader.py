@@ -10,6 +10,7 @@ copies go into that zone's deck. `类型` is 武器 / 食物 / 护甲 / 碎片, 
 "-2" is read as 2) or fragment count (碎片; defaults to 1).
 """
 import random
+import re
 from typing import Dict, List, Optional, Tuple
 import openpyxl
 from .models import Zone, Card, CardType, Character
@@ -72,10 +73,13 @@ def _iter_rows(ws, name_key: str):
 
 
 def _int(value, default=0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+    """Read a number; tolerates text like "+2Health" or "+2 防御" by taking the first integer."""
+    if value is None:
         return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    m = re.search(r"[-+]?\d+", str(value))
+    return int(m.group()) if m else default
 
 
 def _open(path):

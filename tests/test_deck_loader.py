@@ -49,6 +49,18 @@ def test_card_types_and_values(tmp_path):
     assert len(frags) == 2 and frags[0].value == 1
 
 
+def test_values_written_as_text_are_parsed(tmp_path):
+    p = make_workbook(tmp_path / "d.xlsx", zones={"林区牌堆": [
+        ["林01", "食物", "苹果", "", "+2Health", "", "", 1, ""],
+        ["林02", "食物", "虾", "", "+1health", "", "", 1, ""],
+        ["林03", "护甲", "石板盾", "", "+2 防御", "", "", 1, ""],
+    ]})
+    by_name = {c.name: c for c in load_decks(p)[Zone.N]}
+    assert by_name["苹果"].value == 2
+    assert by_name["虾"].value == 1
+    assert by_name["石板盾"].value == 2
+
+
 def test_extra_columns_are_preserved(tmp_path):
     decks = load_decks(make_workbook(tmp_path / "d.xlsx", zones=_zones()))
     bow = next(c for c in decks[Zone.N] if c.name == "弓")

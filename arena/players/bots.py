@@ -1,7 +1,7 @@
 import random
 from typing import Union
 from collections import Counter
-from ..models import Zone, Move, Draw, Attack, CardType, PlantBomb
+from ..models import Zone, Move, Draw, Attack, CardType, PlantBomb, StealCard, CraftWeapon
 from ..combat import attack_value
 from .. import skills
 from .base import Player, Observation
@@ -118,6 +118,15 @@ class SmartBot(Player):
         # bomb the most-crowded enemy zone that isn't mine
         counts = Counter(p.zone for p in obs.state.players
                          if p.alive and p.seat != me.seat and p.zone != me.zone)
+        actions = []
         if counts and counts.most_common(1)[0][1] >= 2:
-            return [PlantBomb(counts.most_common(1)[0][0])]
-        return []
+            actions.append(PlantBomb(counts.most_common(1)[0][0]))
+        if skill.can_steal():                       # Riley: steal from a same-zone player with cards
+            victim = next((p for p in obs.state.players
+                           if p.alive and p.seat != me.seat and p.zone == me.zone and p.hand), None)
+            if victim is not None:
+                actions.append(StealCard(victim.seat))
+        if skill.can_craft() and sum(1 for c in me.hand
+                                     if c.type == CardType.WEAPON and c.value <= 2) >= 2:
+            actions.append(CraftWeapon())           # Agatha: fuse two basics into a bigger weapon
+        return actions

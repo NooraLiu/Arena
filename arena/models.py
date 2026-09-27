@@ -27,6 +27,7 @@ class Card:
     description: str = ""   # flavor text, e.g. "看上去有点毒的蘑菇"
     effect: str = ""        # 特殊效果 / extra function (free text, used by v2+ agents)
     synergy: str = ""       # 角色协同 / character-specific bonus (free text)
+    poison: bool = False    # a poison-food trap (Natalie): deals damage on draw
 
 
 @dataclass
@@ -73,6 +74,26 @@ class PlantBomb:
 class TradeCard:
     to_seat: int
     card_id: str
+
+
+@dataclass
+class StealCard:          # Riley
+    target_seat: int
+
+
+@dataclass
+class CraftWeapon:        # Agatha: combine two basic weapons -> summed weapon
+    pass
+
+
+@dataclass
+class CraftShield:        # Agatha: combine two basic weapons -> a shield (armor 2)
+    pass
+
+
+@dataclass
+class PoisonFood:         # Natalie: spend 2 food -> a poison card into her zone deck
+    pass
 
 
 @dataclass

@@ -44,6 +44,19 @@ class Skill:
     def bomb_fragments(self) -> int:
         return config.BOMB_FRAGMENTS
 
+    def can_steal(self) -> bool:
+        return False
+
+    def can_craft(self) -> bool:
+        return False
+
+    def can_poison(self) -> bool:
+        return False
+
+    def attack_zones(self, player, adjacent):
+        """Zones whose occupants this player may attack. Default: own zone only."""
+        return {player.zone}
+
 
 class NoSkill(Skill):
     pass
@@ -85,12 +98,54 @@ class Garcia(Skill):
         return 2
 
 
+class Riley(Skill):
+    # 小偷: 附加行动,d4 出 4 则偷同区一人一张手牌(不偷已装备武器)。
+    def can_steal(self):
+        return True
+
+
+class Tobias(Skill):
+    # 三叉戟在手且在水区时,每回合多抽一张。
+    def draw_count(self, player, alone, zone):
+        w = player.equipped_weapon
+        base = 2 if alone else 1
+        if w is not None and w.name == "三叉戟" and zone == Zone.E:
+            return base + 1
+        return base
+
+
+class Michael(Skill):
+    # 拿到弓时,可攻击相邻区域的玩家。
+    def attack_zones(self, player, adjacent):
+        w = player.equipped_weapon
+        if w is not None and w.name == "弓":
+            return {player.zone} | set(adjacent)
+        return {player.zone}
+
+
+class Agatha(Skill):
+    # 合成: 两张初级武器 -> 攻击相加的武器,或减伤 2 的护盾。
+    def can_craft(self):
+        return True
+
+
+class Natalie(Skill):
+    # 下毒: 2 张食物 -> 1 张毒食物洗入本区牌堆,抽到者 -4。
+    def can_poison(self):
+        return True
+
+
 _REGISTRY = {
     "Bram": Bram,
     "Elliot": Elliot,
     "Fae": Fae,
     "Cato": Cato,
     "Garcia": Garcia,
+    "Riley": Riley,
+    "Tobias": Tobias,
+    "Michael": Michael,
+    "Agatha": Agatha,
+    "Natalie": Natalie,
 }
 
 

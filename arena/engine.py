@@ -1,8 +1,8 @@
 import random
 from collections import Counter, defaultdict
 from typing import Dict, List
-from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType,
-                     PlantBomb, TradeCard, Bomb, Message)
+from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType, Card,
+                     PlantBomb, TradeCard, Bomb, Message, StealCard, CraftWeapon, CraftShield, PoisonFood)
 from .map import legal_moves
 from .deck import draw as deck_draw, enforce_hand_limit
 from .combat import resolve_attack
@@ -140,6 +140,51 @@ class Engine:
                 self.trade_partners[p.seat].add(target.seat)
                 self.trade_partners[target.seat].add(p.seat)
                 self.pair_trades[frozenset({p.seat, target.seat})] += 1
+        elif isinstance(action, StealCard):
+            if not self._skill(p).can_steal():
+                return
+            target = next((q for q in self.alive_players()
+                           if q.seat == action.target_seat and q.zone == p.zone and q.hand), None)
+            if target is None:
+                return
+            if self.rng.randint(1, 4) == 4:                 # 25% success
+                idx = self.rng.randrange(len(target.hand))
+                stolen = target.hand.pop(idx)
+                p.hand.append(stolen)
+                self.log.record(Event("steal", self.state.round_no, p.seat, "private",
+                                       {"from": target.seat, "card": stolen.id}))
+        elif isinstance(action, (CraftWeapon, CraftShield)):
+            if not self._skill(p).can_craft():
+                return
+            basics = [c for c in p.hand if c.type == CardType.WEAPON and c.value <= 2]
+            if len(basics) < 2:
+                return
+            a, b = basics[0], basics[1]
+            p.hand.remove(a); p.hand.remove(b)
+            if isinstance(action, CraftWeapon):
+                crafted = Card(f"crafted-{a.id}-{b.id}", CardType.WEAPON, a.value + b.value,
+                               name="合成武器")
+                if p.equipped_weapon is None or crafted.value > p.equipped_weapon.value:
+                    p.equipped_weapon = crafted
+                else:
+                    p.hand.append(crafted)
+            else:
+                p.hand.append(Card(f"shield-{a.id}-{b.id}", CardType.ARMOR, 2, name="合成护盾"))
+            self.log.record(Event("craft", self.state.round_no, p.seat, "public",
+                                   {"kind": action.__class__.__name__}))
+        elif isinstance(action, PoisonFood):
+            if not self._skill(p).can_poison():
+                return
+            foods = [c for c in p.hand if c.type == CardType.FOOD]
+            if len(foods) < 2:
+                return
+            p.hand.remove(foods[0]); p.hand.remove(foods[1])
+            poison = Card(f"poison-{self.state.round_no}-{p.seat}", CardType.FOOD, 0,
+                          name="食物", poison=True)
+            deck = self.state.decks.setdefault(p.zone, [])
+            deck.insert(self.rng.randrange(len(deck) + 1), poison)      # shuffled in
+            self.log.record(Event("poison_planted", self.state.round_no, p.seat, "private",
+                                   {"zone": p.zone.value}))
 
     def _detonate_bombs(self):
         due = [b for b in self.state.bombs if b.detonate_round == self.state.round_no]
@@ -198,6 +243,11 @@ class Engine:
     def _draw_one(self, p: PlayerState):
         """Draw the top card of p's zone (equip if it's a weapon upgrade, else hand). Returns the card."""
         card = deck_draw(self.state, p.zone)
+        if card is not None and getattr(card, "poison", False):
+            p.hp -= 4
+            self.log.record(Event("poison", self.state.round_no, p.seat, "public",
+                                   {"card": card.id, "hp": p.hp}))
+            return card
         if card is not None:
             is_upgrade = card.type == CardType.WEAPON and (
                 p.equipped_weapon is None or card.value > p.equipped_weapon.value)
@@ -277,8 +327,10 @@ class Engine:
 
 def build_observation(engine: Engine, seat: int) -> Observation:
     me = engine._p(seat)
+    from .map import adjacent as _adjacent
+    zones = engine._skill(me).attack_zones(me, _adjacent(me.zone))
     attackable = [q.seat for q in engine.alive_players()
-                  if q.seat != seat and q.zone == me.zone]
+                  if q.seat != seat and q.zone in zones]
     if engine.state.round_no == 1:
         # Round 1 has no fixed spawn: each player freely places their pawn in any open zone.
         moves = sorted(engine.state.open_zones, key=lambda z: z.value)

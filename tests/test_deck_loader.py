@@ -66,6 +66,28 @@ def test_extra_columns_are_preserved(tmp_path):
     assert knife.effect == "击杀抽食物"
 
 
+def test_zone_names_map_to_ring_positions():
+    from arena.deck_loader import parse_zones
+    # ring order 林区 -> 水区 -> 石区 -> 城区 -> (back to 林区)
+    assert parse_zones("林区") == [Zone.N]
+    assert parse_zones("水区") == [Zone.E]
+    assert parse_zones("石区") == [Zone.S]
+    assert parse_zones("城区") == [Zone.W]
+    assert parse_zones("Central") == [Zone.CENTER]
+
+
+def test_hp_column_named_plain_hp(tmp_path):
+    p = tmp_path / "deck.xlsx"
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    wc = wb.create_sheet("人物")
+    wc.append(["ID", "角色名", "描述", "HP", "基础攻击(2/3/4)", "特殊技能", "张数", "备注"])
+    wc.append(["C06", "Cato", "", 15, 4, "", None, ""])
+    wb.save(p)
+    chars = load_characters(str(p))
+    assert chars[0].name == "Cato" and chars[0].hp_max == 15 and chars[0].base_attack == 4
+
+
 def test_load_game_data_returns_both(tmp_path):
     p = tmp_path / "deck.xlsx"
     _make_xlsx(p)

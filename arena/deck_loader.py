@@ -19,7 +19,12 @@ OUTER = [Zone.N, Zone.E, Zone.S, Zone.W]
 ALL_ZONES = [Zone.CENTER] + OUTER
 
 _TOKEN_ZONES = {
-    "中心": [Zone.CENTER], "center": [Zone.CENTER], "c": [Zone.CENTER],
+    # named zones; ring order 林区(N) -> 水区(E) -> 石区(S) -> 城区(W) -> back to 林区
+    "林区": [Zone.N], "林": [Zone.N],
+    "水区": [Zone.E], "水": [Zone.E],
+    "石区": [Zone.S], "石": [Zone.S],
+    "城区": [Zone.W], "城": [Zone.W],
+    "中心": [Zone.CENTER], "center": [Zone.CENTER], "central": [Zone.CENTER], "c": [Zone.CENTER],
     "上": [Zone.N], "北": [Zone.N], "n": [Zone.N],
     "下": [Zone.S], "南": [Zone.S], "s": [Zone.S],
     "左": [Zone.W], "西": [Zone.W], "w": [Zone.W],
@@ -85,7 +90,7 @@ def load_characters(path: str) -> List[Character]:
     for row in _iter_rows(ws, "角色名"):
         chars.append(Character(
             name=str(row["角色名"]).strip(),
-            hp_max=_int(row.get("HP档(3/5/7)"), 5),
+            hp_max=_int(row.get("HP", row.get("HP档(3/5/7)")), 13),
             base_attack=_int(row.get("基础攻击(2/3/4)"), 3),
         ))
     return chars

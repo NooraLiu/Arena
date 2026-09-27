@@ -2,7 +2,7 @@ import random
 from collections import Counter, defaultdict
 from typing import Dict, List
 from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType,
-                     PlantBomb, TradeCard, Bomb)
+                     PlantBomb, TradeCard, Bomb, Message)
 from .map import legal_moves
 from .deck import draw as deck_draw, enforce_hand_limit
 from .combat import resolve_attack
@@ -29,6 +29,8 @@ class Engine:
         self.trade_partners = defaultdict(set)   # seat -> set of trade partners
         self.pair_trades = defaultdict(int)      # frozenset({a,b}) -> trade count
         self.reached_final3 = set()          # seats alive when count first <= 3
+        self.messages = []                   # dialogue log (public + private)
+        self.declarations = {}               # seat -> list of (guess_seat, guess_identity)
 
     def alive_players(self) -> List[PlayerState]:
         return [p for p in self.state.players if p.alive]
@@ -38,6 +40,22 @@ class Engine:
 
     def _skill(self, p: PlayerState):
         return skills.for_character(p.character.name)
+
+    def post_message(self, sender_seat, to_seat, text):
+        self.messages.append(Message(self.state.round_no, sender_seat, to_seat, text))
+        self.log.record(Event("say", self.state.round_no, sender_seat,
+                              "public" if to_seat is None else "private",
+                              {"to": to_seat, "text": text}))
+
+    def visible_messages(self, seat):
+        return [m for m in self.messages if m.to is None or m.to == seat or m.sender == seat]
+
+    async def negotiation_phase(self):
+        for p in self.alive_players():
+            obs = build_observation(self, p.seat)
+            msgs = await self.players_by_seat[p.seat].decide_messages(obs)
+            for m in msgs[:config.MESSAGES_PER_ROUND]:
+                self.post_message(p.seat, m.to, m.text)
 
     async def movement_phase(self):
         chosen = {}
@@ -139,6 +157,7 @@ class Engine:
         self.state.bombs = [b for b in self.state.bombs if b.detonate_round != self.state.round_no]
 
     async def play_round(self):
+        await self.negotiation_phase()
         await self.movement_phase()
         self._detonate_bombs()         # bombs planted last round go off after movement
         await self.action_phase()
@@ -147,8 +166,12 @@ class Engine:
         self.state.round_no += 1
         self.state.first_seat = (self.state.first_seat + 1) % len(self.state.players)
 
+    def declare(self, seat, guesses):
+        """Record a player's identity guesses: list of (target_seat, identity_name)."""
+        self.declarations[seat] = list(guesses)
+
     def identity_winners(self):
-        return identities.check_winners(self)
+        return identities.check_winners(self, self.declarations)
 
     async def play_game(self):
         elim_round = {}
@@ -261,5 +284,5 @@ def build_observation(engine: Engine, seat: int) -> Observation:
         moves = sorted(engine.state.open_zones, key=lambda z: z.value)
     else:
         moves = legal_moves(me.zone, engine.state.open_zones)
-    return Observation(me=me, state=engine.state,
-                       legal_move_zones=moves, attackable_seats=attackable)
+    return Observation(me=me, state=engine.state, legal_move_zones=moves,
+                       attackable_seats=attackable, messages=engine.visible_messages(seat))

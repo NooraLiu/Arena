@@ -9,6 +9,7 @@ class Observation:
     state: GameState
     legal_move_zones: List[Zone]
     attackable_seats: List[int]
+    messages: list = None
 
 
 class Player:
@@ -20,4 +21,8 @@ class Player:
 
     async def decide_additional_actions(self, obs: "Observation") -> list:
         """Extra actions beyond the main one (plant bomb, trade card, ...). Default none."""
+        return []
+
+    async def decide_messages(self, obs: "Observation") -> list:
+        """Public/private messages to send in the negotiation phase. Default none."""
         return []

@@ -76,6 +76,14 @@ class TradeCard:
 
 
 @dataclass
+class Message:
+    round_no: int
+    sender: int
+    to: Optional[int]        # None = public broadcast; else recipient seat
+    text: str
+
+
+@dataclass
 class Bomb:
     zone: Zone
     detonate_round: int

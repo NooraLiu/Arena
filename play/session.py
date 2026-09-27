@@ -146,6 +146,38 @@ def cmd_endround(args):
     print(msg)
 
 
+def cmd_say(args):
+    eng = _load()
+    to = None if args.to.lower() in ("public", "all", "-") else int(args.to)
+    eng.post_message(args.seat, to, " ".join(args.text))
+    _save(eng)
+    tag = "public" if to is None else f"->seat{to}"
+    print(f"seat{args.seat} says [{tag}]: {' '.join(args.text)}")
+
+
+def cmd_inbox(args):
+    eng = _load()
+    for m in eng.visible_messages(args.seat):
+        tag = "public" if m.to is None else ("private->me" if m.to == args.seat else f"private->seat{m.to}")
+        print(f"r{m.round_no} seat{m.sender} [{tag}]: {m.text}")
+
+
+def cmd_declare(args):
+    eng = _load()
+    guesses = [(int(g.split(":")[0]), g.split(":")[1]) for g in args.guesses]
+    eng.declare(args.seat, guesses)
+    _save(eng)
+    print(f"seat{args.seat} declared: {guesses}")
+
+
+def cmd_result(args):
+    eng = _load()
+    idw = eng.identity_winners()
+    for p in eng.state.players:
+        tracks = idw.get(p.seat, [])
+        print(f"  s{p.seat} {p.character.name:8} [{p.identity}] alive={p.alive} -> {tracks or '-'}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -155,9 +187,14 @@ def main():
     sub.add_parser("detonate")
     pa = sub.add_parser("act"); pa.add_argument("seat", type=int); pa.add_argument("rest", nargs="*")
     sub.add_parser("endround")
+    ps = sub.add_parser("say"); ps.add_argument("seat", type=int); ps.add_argument("to"); ps.add_argument("text", nargs="+")
+    pin = sub.add_parser("inbox"); pin.add_argument("seat", type=int)
+    pd = sub.add_parser("declare"); pd.add_argument("seat", type=int); pd.add_argument("guesses", nargs="+")
+    sub.add_parser("result")
     args = ap.parse_args()
     {"init": cmd_init, "snapshot": cmd_snapshot, "move": cmd_move,
-     "detonate": cmd_detonate, "act": cmd_act, "endround": cmd_endround}[args.cmd](args)
+     "detonate": cmd_detonate, "act": cmd_act, "endround": cmd_endround,
+     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result}[args.cmd](args)
 
 
 if __name__ == "__main__":

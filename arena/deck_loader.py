@@ -3,12 +3,11 @@
 Reads sheets by name and columns by header (so column order can change).
 Skips the grey example row and blank rows.
 
-Convention for the 所在区域牌堆 column (see the workbook's 说明 sheet):
-    中心 / center            -> the center deck
-    上/下/左/右 (or N/S/W/E)  -> that specific outer deck
-    外区 / 外                 -> each of the four outer decks
-    任意 / 全部 / all         -> every deck (center + four outer)
-`张数` is the number of copies placed in EACH target zone.
+Decks are organized one sheet per zone: 林区牌堆 / 水区牌堆 / 石区牌堆 /
+城区牌堆 / 中心牌堆. Each row is one card design; its `张数` is how many
+copies go into that zone's deck. `类型` is 武器 / 食物 / 护甲 / 碎片, and
+`数值` means +attack (武器), +HP (食物), damage reduced (护甲; a written
+"-2" is read as 2) or fragment count (碎片; defaults to 1).
 """
 import random
 from typing import Dict, List, Optional, Tuple
@@ -107,34 +106,39 @@ def _add_cards(decks: Dict[Zone, List[Card]], zones: List[Zone], count: int,
             ))
 
 
+ZONE_SHEETS = [("林区牌堆", Zone.N), ("水区牌堆", Zone.E), ("石区牌堆", Zone.S),
+               ("城区牌堆", Zone.W), ("中心牌堆", Zone.CENTER)]
+
+_CARD_TYPES = [("武器", CardType.WEAPON), ("食物", CardType.FOOD),
+               ("护甲", CardType.ARMOR), ("碎片", CardType.AMMO)]
+
+
+def _card_type(text, sheet: str, name: str) -> CardType:
+    t = str(text or "").strip()
+    for key, ctype in _CARD_TYPES:
+        if key in t:
+            return ctype
+    raise ValueError(f"『{sheet}』里的「{name}」类型是「{t}」,只能填 武器 / 食物 / 护甲 / 碎片。")
+
+
 def load_decks(path: str, rng: Optional[random.Random] = None) -> Dict[Zone, List[Card]]:
     wb = _open(path)
     decks: Dict[Zone, List[Card]] = {z: [] for z in ALL_ZONES}
-
-    ws = wb["武器"]
-    for row in _iter_rows(ws, "武器名"):
-        name = str(row["武器名"]).strip()
-        _add_cards(
-            decks, parse_zones(row.get("所在区域牌堆")), max(1, _int(row.get("张数"), 1)),
-            base_id=str(row.get("ID") or name), ctype=CardType.WEAPON,
-            value=_int(row.get("攻击加成(+X)"), 0), name=name,
-            description=str(row.get("描述") or ""), effect=str(row.get("特殊效果") or ""),
-            synergy=str(row.get("角色协同") or ""),
-        )
-
-    ws = wb["物资(食物·护甲)"]
-    for row in _iter_rows(ws, "牌名"):
-        name = str(row["牌名"]).strip()
-        kind = str(row.get("类型(食物/护甲)") or "").strip()
-        ctype = CardType.ARMOR if "护甲" in kind else CardType.FOOD
-        _add_cards(
-            decks, parse_zones(row.get("所在区域牌堆")), max(1, _int(row.get("张数"), 1)),
-            base_id=str(row.get("ID") or name), ctype=ctype,
-            value=_int(row.get("数值"), 0), name=name,
-            description=str(row.get("描述") or ""), effect=str(row.get("特殊效果") or ""),
-            synergy="",
-        )
-
+    for sheet, zone in ZONE_SHEETS:
+        if sheet not in wb.sheetnames:
+            continue
+        for row in _iter_rows(wb[sheet], "牌名"):
+            name = str(row["牌名"]).strip()
+            ctype = _card_type(row.get("类型"), sheet, name)
+            value = _int(row.get("数值"), 1 if ctype == CardType.AMMO else 0)
+            if ctype == CardType.ARMOR:
+                value = abs(value)
+            _add_cards(
+                decks, [zone], max(1, _int(row.get("张数"), 1)),
+                base_id=str(row.get("ID") or name), ctype=ctype, value=value, name=name,
+                description=str(row.get("描述") or ""), effect=str(row.get("特殊效果") or ""),
+                synergy=str(row.get("角色协同") or ""),
+            )
     if rng is not None:
         for z in decks:
             rng.shuffle(decks[z])

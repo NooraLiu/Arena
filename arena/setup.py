@@ -24,7 +24,7 @@ def new_game(num_players: int, rng: random.Random,
                 f"没有从 {data_path} 的『人物』表读到任何角色——请先填好人物行(HP/攻击),再运行。")
         if not any(decks.values()):
             raise ValueError(
-                f"没有从 {data_path} 的『武器』/『物资』表读到任何牌——请先填好牌堆,再运行。")
+                f"没有从 {data_path} 的五个区的牌堆表读到任何牌——请先填好牌堆,再运行。")
     else:
         characters, decks = config.DEFAULT_CHARACTERS, config.build_region_decks(rng)
 

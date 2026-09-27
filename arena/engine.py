@@ -135,7 +135,8 @@ class Engine:
         elif isinstance(action, Attack):
             defender = self._p(action.target_seat)
             bonus = self._skill(defender).damage_reduction(defender, defender.zone)
-            res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION, bonus_reduction=bonus)
+            res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION,
+                                 bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p))
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",
                                    {"target": defender.seat, **res}))
             # death is not finalized here; end-of-round resolve_deaths() handles it

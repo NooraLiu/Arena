@@ -48,21 +48,25 @@ def test_registry_maps_names_and_defaults_to_no_skill():
     assert isinstance(skills.for_character("Nobody"), skills.NoSkill)   # unknown -> no skill
 
 
-# ---- Bram: -1 damage in the stone zone ----
-def test_bram_takes_one_less_damage_in_stone_zone():
-    atk = PlayerState(0, Character("A", 5, 4), 5, Zone.S)
-    bram = PlayerState(1, Character("Bram", 15, 2), 15, Zone.S)
-    eng = _engine([atk, bram], {0: Attack(1), 1: Draw()}, first_seat=0, rng=FakeRNG(3))
+# ---- Bram: attacks ignore the target's armor ----
+def test_bram_attack_ignores_target_armor():
+    bram = PlayerState(0, Character("Bram", 11, 4), 11, Zone.N)   # d4
+    armor = Card("a", CardType.ARMOR, 3, name="shield")
+    victim = PlayerState(1, Character("V", 13, 2), 13, Zone.N, hand=[armor])
+    eng = _engine([bram, victim], {0: Attack(1), 1: Draw()}, first_seat=0, rng=FakeRNG(3))
     asyncio.run(eng.action_phase())
-    assert bram.hp == 15 - (3 - 1)          # roll 3, reduced by 1
+    assert victim.hp == 13 - 3            # full roll 3, armor ignored
+    assert armor in victim.hand           # armor not even consumed
 
 
-def test_bram_takes_full_damage_outside_stone_zone():
-    atk = PlayerState(0, Character("A", 5, 4), 5, Zone.N)
-    bram = PlayerState(1, Character("Bram", 15, 2), 15, Zone.N)
-    eng = _engine([atk, bram], {0: Attack(1), 1: Draw()}, first_seat=0, rng=FakeRNG(3))
+def test_normal_attacker_is_blocked_by_armor():
+    atk = PlayerState(0, Character("A", 11, 4), 11, Zone.N)       # no skill
+    armor = Card("a", CardType.ARMOR, 3, name="shield")
+    victim = PlayerState(1, Character("V", 13, 2), 13, Zone.N, hand=[armor])
+    eng = _engine([atk, victim], {0: Attack(1), 1: Draw()}, first_seat=0, rng=FakeRNG(3))
     asyncio.run(eng.action_phase())
-    assert bram.hp == 15 - 3
+    assert victim.hp == 13 - max(0, 3 - 3)   # armor(3) blocks the roll of 3
+    assert armor not in victim.hand          # armor spent
 
 
 # ---- Elliot: alone -> draw 2, hand limit 6 ----

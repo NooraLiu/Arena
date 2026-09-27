@@ -34,18 +34,19 @@ class Skill:
         """Zone where this skill pays off, so a bot knows to head there (or None)."""
         return None
 
+    def ignores_armor(self, player) -> bool:
+        """Whether this player's attacks bypass the target's armor."""
+        return False
+
 
 class NoSkill(Skill):
     pass
 
 
 class Bram(Skill):
-    # 在石区时,每次受到攻击的伤害 -1。
-    def damage_reduction(self, player, zone):
-        return 1 if zone == Zone.S else 0
-
-    def home_zone(self, player):
-        return Zone.S
+    # 蛮力:攻击时无视对方护甲(护甲不减伤,也不被消耗)。
+    def ignores_armor(self, player):
+        return True
 
 
 class Elliot(Skill):

@@ -2,6 +2,7 @@ import random
 from typing import Union
 from ..models import Zone, Move, Draw, Attack
 from ..combat import attack_value
+from .. import skills
 from .base import Player, Observation
 
 
@@ -38,6 +39,10 @@ class HeuristicBot(Player):
         return Draw()
 
 
+def _skill_home_zone(player):
+    return skills.for_character(player.character.name).home_zone(player)
+
+
 class SmartBot(Player):
     """Utility-based bot (no LLM). Reasons about the visible state:
     secures reachable kills, arms up when unarmed, and avoids the forced-combat
@@ -61,6 +66,8 @@ class SmartBot(Player):
         unarmed = me.equipped_weapon is None
         cautious = weak or unarmed
 
+        home = _skill_home_zone(me)               # zone where my skill pays off, if any
+
         def score(z: Zone) -> float:
             s = 0.0
             enemies = self._enemies_in(obs, z)
@@ -68,6 +75,8 @@ class SmartBot(Player):
                 s += -5.0 if cautious else 3.0        # center forces combat
             if cautious and self._deck_size(obs, z) > 0:
                 s += 2.0                              # go somewhere I can arm up
+            if z == home:
+                s += 3.0                              # my skill's zone (Bram/Fae/Tobias/…)
             s += (-2.0 if cautious else 1.0) * enemies  # flee crowds when weak, seek when strong
             return s
 

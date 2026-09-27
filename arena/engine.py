@@ -7,6 +7,7 @@ from .combat import resolve_attack
 from .players.base import Observation, Player
 from .events import Event, EventLog
 from . import config
+from . import skills
 
 
 class Engine:
@@ -22,6 +23,9 @@ class Engine:
 
     def _p(self, seat: int) -> PlayerState:
         return next(p for p in self.state.players if p.seat == seat)
+
+    def _skill(self, p: PlayerState):
+        return skills.for_character(p.character.name)
 
     async def movement_phase(self):
         chosen = {}
@@ -106,25 +110,38 @@ class Engine:
             for seat in before - after:
                 elim_round[seat] = self.state.round_no - 1
 
+    def _draw_one(self, p: PlayerState):
+        """Draw the top card of p's zone (equip if it's a weapon upgrade, else hand). Returns the card."""
+        card = deck_draw(self.state, p.zone)
+        if card is not None:
+            is_upgrade = card.type == CardType.WEAPON and (
+                p.equipped_weapon is None or card.value > p.equipped_weapon.value)
+            if is_upgrade:
+                p.equipped_weapon = card          # equip slot, not the hand
+            else:
+                p.hand.append(card)
+        self.log.record(Event("draw", self.state.round_no, p.seat, "public",
+                               {"got": card.id if card else None}))
+        return card
+
     def _apply(self, p: PlayerState, action):
+        skill = self._skill(p)
         if isinstance(action, Draw):
-            card = deck_draw(self.state, p.zone)
-            if card is not None:
-                is_upgrade = card.type == CardType.WEAPON and (
-                    p.equipped_weapon is None or card.value > p.equipped_weapon.value)
-                if is_upgrade:
-                    p.equipped_weapon = card      # goes to the equip slot, not the hand
-                else:                              # (a worse weapon is kept as a spare in hand)
-                    p.hand.append(card)
-                    enforce_hand_limit(p, config.HAND_LIMIT)
-            self.log.record(Event("draw", self.state.round_no, p.seat, "public",
-                                   {"got": card.id if card else None}))
+            alone = not any(q.alive and q.seat != p.seat and q.zone == p.zone
+                            for q in self.state.players)
+            for _ in range(skill.draw_count(p, alone, p.zone)):
+                self._draw_one(p)
+            enforce_hand_limit(p, skill.hand_limit(p))
         elif isinstance(action, Attack):
             defender = self._p(action.target_seat)
-            res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION)
+            bonus = self._skill(defender).damage_reduction(defender, defender.zone)
+            res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION, bonus_reduction=bonus)
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",
                                    {"target": defender.seat, **res}))
             # death is not finalized here; end-of-round resolve_deaths() handles it
+            for _ in range(skill.draws_after_attack(p, p.zone)):   # e.g. Fae in the forest
+                self._draw_one(p)
+            enforce_hand_limit(p, skill.hand_limit(p))
 
     def _eat_one_food(self, p: PlayerState) -> bool:
         food = next((c for c in p.hand if c.type == CardType.FOOD), None)

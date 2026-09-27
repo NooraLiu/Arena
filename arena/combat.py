@@ -17,7 +17,7 @@ def _take_armor(defender: PlayerState):
 
 
 def resolve_attack(attacker: PlayerState, defender: PlayerState,
-                   rng: random.Random, armor_reduction: int) -> Dict:
+                   rng: random.Random, armor_reduction: int, bonus_reduction: int = 0) -> Dict:
     """Apply one attack's damage. Does NOT finalize death: a defender dropped to
     <=0 HP is 'downed' but stays on the board until end-of-round resolution, so
     they still get their action this round (heal / retaliate / draw)."""
@@ -25,6 +25,7 @@ def resolve_attack(attacker: PlayerState, defender: PlayerState,
     roll = rng.randint(1, faces)
     armor = _take_armor(defender)
     reduction = (armor.value or armor_reduction) if armor else 0   # the card's own value; default if unset
+    reduction += bonus_reduction                                   # skill-based reduction (e.g. Bram in stone)
     damage = max(0, roll - reduction)
     defender.hp -= damage
     return {"damage": damage, "roll": roll, "downed": defender.hp <= 0}

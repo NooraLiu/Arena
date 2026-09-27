@@ -143,7 +143,7 @@ Sponsor 是本作服务"淘汰体验(D)"的核心:被淘汰者不出局,而是�
 |---|---|---|---|
 | **Myrtle** | 1 | **最先牺牲**(第一个被淘汰)即胜 | — |
 | **Social Butterfly** | 1 | 游戏结束时正确**认出任意 3 名其他玩家的隐藏身份**即胜(Lovers 这一对算 1 个)✅ | — |
-| **Star-crossed Lovers** | **2** | **两张相同的牌,持有者互相爱上**;任一方获胜,另一方也胜 ✅(❓ 开局是否知道对方是谁) | Sour Lemon |
+| **Star-crossed Lovers** | **2** | **两张相同的牌,持有者互相爱上**;任一方获胜,另一方也胜;**开局就知道对方是谁** ✅ | Sour Lemon |
 | **Sour Lemon** | 1 | **认出并杀死两名 Lovers 中的任意一人**即胜 | Lovers |
 | **Warrior** | 1 | **杀敌数最多**即胜 | Pacifier |
 | **Bodyguard** | 1 | 保护 Vendetta 的复仇对象存活(结束时须指出对象),**或杀死 Vendetta** | Vendetta |

@@ -90,11 +90,11 @@ def cmd_move(args):
         target = _zone(zname)
         allowed = set(st.open_zones) if st.round_no == 1 else set(legal_moves(p.zone, st.open_zones))
         if target not in allowed:
-            fallback = p.zone if p.zone in st.open_zones else (allowed[0] if allowed else p.zone)
-            print(f"! seat {p.seat} illegal move to {zname}; using {NAME_BY_ZONE[fallback]}")
-            p.zone = fallback
-            continue
+            target = p.zone if p.zone in st.open_zones else (allowed[0] if allowed else p.zone)
+            print(f"! seat {p.seat} illegal move to {zname}; using {NAME_BY_ZONE[target]}")
         p.zone = target
+        from arena.events import Event as _Ev
+        eng.log.record(_Ev("move", st.round_no, p.seat, "public", {"to": target.value}))
     _save(eng)
     print("moved. positions: " + ", ".join(f"{p.character.name}={NAME_BY_ZONE[p.zone]}"
                                             for p in eng.alive_players()))
@@ -212,6 +212,8 @@ def cmd_board(args):
         eqp = p.equipped_weapon.name if p.equipped_weapon else "无"
         zone = "位置未知(第一轮同时暗选,谁都不知道别人去哪)" if hide_pos else NAME_BY_ZONE[p.zone]
         lines.append(f"- s{p.seat} {p.character.name}: {p.hp}血 | {zone} | 装备:{eqp} | {tag}")
+    pool = sorted(set(pp.identity for pp in st.players if pp.identity))
+    lines += ["", "## 本局在场身份池(公开,不含归属——谁是谁要靠推理)", "  " + " / ".join(pool)]
     lines += ["", "## 公开喊话"]
     for m in eng.messages:
         if m.to is None:
@@ -242,6 +244,54 @@ def cmd_board(args):
     print(f"wrote {LIVE}/board.md and seat_0..{len(st.players)-1}.md")
 
 
+
+def cmd_export(args):
+    import os as _os, json as _json
+    eng=_load(); st=eng.state; n=len(st.players)
+    LIVEDIR=_os.path.join(os.path.dirname(os.path.dirname(__file__)),"app","live") if False else "app/live"
+    _os.makedirs("app/live", exist_ok=True)
+    roster=[{"seat":p.seat,"name":p.character.name,"hp_max":p.character.hp_max,
+             "attack":p.character.base_attack,"identity":p.identity} for p in st.players]
+    # reconstruct per-round snapshots from the event log
+    pos={p.seat:NAME_BY_ZONE[p.zone] for p in st.players}   # will be overwritten by round-1 moves
+    hp={p.seat:p.character.hp_max for p in st.players}
+    alive={p.seat:True for p in st.players}
+    open_zones={z.value for z in [Zone.CENTER,Zone.N,Zone.E,Zone.S,Zone.W]}
+    final_hand={p.seat:[c.name for c in p.hand] for p in st.players}
+    final_eq={p.seat:(p.equipped_weapon.name if p.equipped_weapon else None) for p in st.players}
+    by_round={}
+    for e in eng.log.events:
+        by_round.setdefault(e.round_no,[]).append(e)
+    snaps=[]
+    for r in sorted(by_round):
+        for e in by_round[r]:
+            pl=e.payload or {}
+            if e.type=="move": pos[e.actor]=pl.get("to")
+            elif e.type=="attack" and pl.get("target") is not None: hp[pl["target"]]-=pl.get("damage",0)
+            elif e.type in ("heal","poison") and "hp" in pl: hp[e.actor]=pl["hp"]
+            elif e.type=="bomb" and "hit" in pl: hp[pl["hit"]]=pl.get("hp",hp.get(pl["hit"],0))
+            elif e.type=="eliminated": alive[e.actor]=False
+            elif e.type=="zone_closed": open_zones.discard(pl.get("zone"))
+        snaps.append({"round":r,"open_zones":sorted(open_zones),
+                      "players":[{"seat":s2,"zone":pos[s2],"hp":hp[s2],"alive":alive[s2],
+                                  "equipped":final_eq[s2],"hand":final_hand[s2]} for s2 in range(n)]})
+    events=[{"type":e.type,"round":e.round_no,"actor":e.actor,"visibility":e.visibility,
+             "payload":e.payload} for e in eng.log.events]
+    thinking={}
+    tf="app/live/think.json"
+    if _os.path.exists(tf):
+        try: thinking={int(k):{int(rr):tt for rr,tt in v.items()} for k,v in _json.load(open(tf,encoding="utf-8")).items()}
+        except Exception: thinking={}
+    w=eng.check_winner()
+    out={"roster":roster,"snapshots":snaps,"events":events,
+         "winners":{str(k):v for k,v in eng.identity_winners().items()},
+         "thinking":{str(k):{str(rr):tt for rr,tt in v.items()} for k,v in thinking.items()},
+         "outcome":("进行中" if w is None else ("draw" if w==-1 else "win")),
+         "rounds":st.round_no-1,"survivor":(None if (w is None or w==-1) else w)}
+    _json.dump(out, open("app/live/game.json","w",encoding="utf-8"), ensure_ascii=False)
+    print("wrote app/live/game.json (%d snapshots, %d events)"%(len(snaps),len(events)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -256,10 +306,11 @@ def main():
     pd = sub.add_parser("declare"); pd.add_argument("seat", type=int); pd.add_argument("guesses", nargs="+")
     sub.add_parser("result")
     pb = sub.add_parser("board"); pb.add_argument("phase", nargs="?", default=None)
+    sub.add_parser("export")
     args = ap.parse_args()
     {"init": cmd_init, "snapshot": cmd_snapshot, "move": cmd_move,
      "detonate": cmd_detonate, "act": cmd_act, "endround": cmd_endround,
-     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board}[args.cmd](args)
+     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board, "export": cmd_export}[args.cmd](args)
 
 
 if __name__ == "__main__":

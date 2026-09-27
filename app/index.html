@@ -44,6 +44,9 @@
   .cfg{display:none;gap:6px;flex-wrap:wrap;margin-top:8px}
   .cfg .seatcfg{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:12px}
   #actlog{max-height:300px;overflow:auto}
+  .cast{margin:0 0 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px}
+  .cast .c{background:var(--card);border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:6px 9px;font-size:12.5px}
+  .cast .c .nm{font-weight:600} .cast .c .st{color:var(--dim);font-size:11px} .cast .c .sk{color:#cdd3f0;font-size:11.5px;margin-top:2px}
   .empty{color:var(--dim);text-align:center;padding:26px 0}
 </style>
 </head>
@@ -65,6 +68,20 @@ const COLORS=["#6ea8fe","#7ee787","#ffd166","#ff8fab","#c3a6ff","#5ce1e6","#ffa9
 const ZONE={center:"中心",forest:"林区",water:"水区",stone:"石区",city:"城区",n:"林区",e:"水区",s:"石区",w:"城区"};
 const CELL={center:"zc",forest:"zn",water:"ze",stone:"zs",city:"zw",n:"zn",e:"ze",s:"zs",w:"zw"};
 const MODELS=["opus-5","opus-4.8","sonnet-5","haiku-4.5","fable-5.1"];
+const SKILL={
+ "Riley":"小偷:附加行动,d4 出4则偷同区一人一张手牌(不偷已装备武器)",
+ "Elliot":"拾荒:同区无人时一次抽2张,手牌上限6",
+ "Agatha":"合成:两张初级武器→攻击相加的武器,或减伤2的护盾",
+ "Fae":"在林区,攻击的回合也能额外抽一张牌",
+ "Natalie":"下毒:2张食物→1张毒食物洗入本区牌堆,抽到者 -4",
+ "Cato":"最强 15血/攻4,但不能用碎片造炸弹",
+ "Garcia":"只需2枚碎片就能造一个炸弹",
+ "Tobias":"三叉戟在手且在水区时,每回合多抽一张牌",
+ "Bram":"蛮力:攻击时无视对方护甲",
+ "Iris":"在城区每局一次,可秘密查看同区一名玩家的身份",
+ "Mira":"附加行动:把食物给同区盟友吃,回血效果+2",
+ "Michael":"拿到弓时,可攻击相邻区域的玩家"
+};
 let DATA=null, IDX=0, NAME={}, COLOR={}, sel=null;
 
 function norm(z){return ({n:"forest",e:"water",s:"stone",w:"city"})[z]||z;}
@@ -131,6 +148,12 @@ function render(){
     <input type="range" id="slider" min="0" max="${maxi}" value="${IDX}">
     <button class="ghost" id="next">▶</button>`;
   out.appendChild(step);
+  // cast: character + skill overview
+  const cast=document.createElement("div");cast.className="cast";
+  cast.innerHTML=d.roster.map(p=>`<div class="c" style="border-left-color:${COLOR[p.seat]}">
+      <div class="nm" style="color:${COLOR[p.seat]}">${p.name} <span class="st">${p.hp_max}血/攻${p.attack}</span></div>
+      <div class="sk">${SKILL[p.name]||""}</div></div>`).join("");
+  out.appendChild(cast);
   // body grid
   const grid=document.createElement("div");grid.className="grid";
   grid.innerHTML=`<div><div class="map" id="map"></div>

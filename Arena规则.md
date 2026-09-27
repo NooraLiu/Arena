@@ -171,7 +171,7 @@ Sponsor 是本作服务"淘汰体验(D)"的核心:被淘汰者不出局,而是�
 | 人数 | 身份配置 | 这一档变化 |
 |---|---|---|
 | 5 | Warrior、Vendetta、Bodyguard、Myrtle、Social Butterfly | 基础 5 张 |
-| 6 | 基础 5 张 + Negotiator | 加 Negotiator |
+| 6 | Warrior、Vendetta、Bodyguard、Social Butterfly + Lovers×2 | 去 Myrtle+Negotiator,加 Lovers 一对(社交向);Myrtle 于 7 人局加回 |
 | 7 | 基础 5 张 + Lovers×2 | Negotiator 换成 Lovers 一对(成对加入) |
 | 8 | 7 人配置 + Sour Lemon | Lovers 的克星 |
 | 9 | 8 人配置 + Pacifist | 进前三才难,苟着不再稳赢 |

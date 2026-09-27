@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 IDENTITY_CONFIG = {
     5:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly"],
-    6:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Negotiator"],
+    6:  ["Warrior", "Vendetta", "Bodyguard", "Social Butterfly", "Lovers", "Lovers"],
     7:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers"],
     8:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers", "Sour Lemon"],
     9:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers", "Sour Lemon", "Pacifist"],

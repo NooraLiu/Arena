@@ -97,6 +97,17 @@ class PoisonFood:         # Natalie: spend 2 food -> a poison card into her zone
 
 
 @dataclass
+class PeekIdentity:       # Iris: once per game, in the city, secretly see a same-zone player's identity
+    target_seat: int
+
+
+@dataclass
+class FeedFood:           # Mira: feed one of her foods to a same-zone player (+2 extra HP)
+    target_seat: int
+    card_id: Optional[str] = None     # which food; None = her smallest food
+
+
+@dataclass
 class Message:
     round_no: int
     sender: int

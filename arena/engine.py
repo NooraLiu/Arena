@@ -2,7 +2,8 @@ import random
 from collections import Counter, defaultdict
 from typing import Dict, List
 from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType, Card,
-                     PlantBomb, TradeCard, Bomb, Message, StealCard, CraftWeapon, CraftShield, PoisonFood)
+                     PlantBomb, TradeCard, Bomb, Message, StealCard, CraftWeapon, CraftShield, PoisonFood,
+                     PeekIdentity, FeedFood)
 from .map import legal_moves
 from .deck import draw as deck_draw, enforce_hand_limit
 from .combat import resolve_attack
@@ -31,6 +32,8 @@ class Engine:
         self.reached_final3 = set()          # seats alive when count first <= 3
         self.messages = []                   # dialogue log (public + private)
         self.declarations = {}               # seat -> list of (guess_seat, guess_identity)
+        self.known_identities = defaultdict(dict)  # seat -> {seat: identity} learned privately (Iris)
+        self.peek_used = set()               # seats that spent their once-per-game peek
 
     def alive_players(self) -> List[PlayerState]:
         return [p for p in self.state.players if p.alive]
@@ -213,6 +216,32 @@ class Engine:
             deck.insert(self.rng.randrange(len(deck) + 1), poison)      # shuffled in
             self.log.record(Event("poison_planted", self.state.round_no, p.seat, "private",
                                    {"zone": p.zone.value}))
+        elif isinstance(action, PeekIdentity):
+            if not self._skill(p).can_peek() or p.seat in self.peek_used or p.zone != Zone.W:
+                return
+            target = next((q for q in self.alive_players() if q.seat == action.target_seat
+                           and q.seat != p.seat and q.zone == p.zone), None)
+            if target is None:
+                return
+            self.peek_used.add(p.seat)
+            self.known_identities[p.seat][target.seat] = target.identity
+            self.log.record(Event("peek", self.state.round_no, p.seat, "private",
+                                   {"target": target.seat, "identity": target.identity}))
+        elif isinstance(action, FeedFood):
+            skill = self._skill(p)
+            if not skill.can_feed():
+                return
+            target = next((q for q in self.alive_players() if q.seat == action.target_seat
+                           and q.seat != p.seat and q.zone == p.zone), None)
+            foods = [c for c in p.hand if c.type == CardType.FOOD and not c.poison]
+            food = (next((c for c in foods if c.id == action.card_id), None) if action.card_id
+                    else min(foods, key=lambda c: c.value, default=None))
+            if target is None or food is None:
+                return
+            p.hand.remove(food)
+            target.hp += food.value + skill.feed_bonus()
+            self.log.record(Event("feed", self.state.round_no, p.seat, "public",
+                                   {"to": target.seat, "food": food.id, "hp": target.hp}))
 
     def _detonate_bombs(self):
         due = [b for b in self.state.bombs if b.detonate_round == self.state.round_no]

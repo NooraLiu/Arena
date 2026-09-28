@@ -31,10 +31,15 @@ def new_game(num_players: int, rng: random.Random,
     else:
         characters, decks = config.DEFAULT_CHARACTERS, config.build_region_decks(rng)
 
+    # deal characters at random from the whole pool (no repeats while the pool lasts)
+    if num_players <= len(characters):
+        dealt = rng.sample(list(characters), num_players)
+    else:
+        dealt = [characters[s % len(characters)] for s in range(num_players)]
     zones = list(Zone)
     players, pbs = [], {}
     for seat in range(num_players):
-        ch = characters[seat % len(characters)]
+        ch = dealt[seat]
         zone = zones[seat % len(zones)]
         players.append(PlayerState(seat=seat, character=ch, hp=ch.hp_max, zone=zone))
         pbs[seat] = players_factory()

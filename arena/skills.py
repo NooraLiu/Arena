@@ -6,7 +6,8 @@ When a character's skill text changes, update the matching class below.
 
 Batch 1 (implemented): passive / simple skills that need no new subsystems.
 Batch 2 (pending new systems): Riley (steal), Garcia (bombs), Tobias / Michael
-(item-granted abilities), Natalie (poison).  Batch 3 (needs v2 agents): Iris, Mira.
+(item-granted abilities), Natalie (poison).  Batch 3 (implemented, used by LLM agents):
+Iris (peek), Mira (feed).
 """
 from .models import Zone
 from . import config
@@ -52,6 +53,16 @@ class Skill:
 
     def can_poison(self) -> bool:
         return False
+
+    def can_peek(self) -> bool:
+        return False
+
+    def can_feed(self) -> bool:
+        return False
+
+    def feed_bonus(self) -> int:
+        """Extra HP when this player feeds someone else a food."""
+        return 0
 
     def attack_zones(self, player, adjacent):
         """Zones whose occupants this player may attack. Default: own zone only."""
@@ -135,7 +146,27 @@ class Natalie(Skill):
         return True
 
 
+class Iris(Skill):
+    # 在城区时,每局一次,可以秘密查看同区域一名玩家的隐藏身份。
+    def can_peek(self):
+        return True
+
+    def home_zone(self, player):
+        return Zone.W
+
+
+class Mira(Skill):
+    # 附加行动:把自己的食物给同区域另一名玩家吃,回血效果 +2。
+    def can_feed(self):
+        return True
+
+    def feed_bonus(self):
+        return 2
+
+
 _REGISTRY = {
+    "Iris": Iris,
+    "Mira": Mira,
     "Bram": Bram,
     "Elliot": Elliot,
     "Fae": Fae,

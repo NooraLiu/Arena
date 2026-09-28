@@ -30,6 +30,7 @@ def _snapshot(eng, round_no):
     return {"round": round_no, "open_zones": [z.value for z in eng.state.open_zones],
             "players": [{"seat": p.seat, "zone": p.zone.value, "hp": p.hp, "alive": p.alive,
                          "equipped": p.equipped_weapon.name if p.equipped_weapon else None,
+                         "eq_atk": p.equipped_weapon.value if p.equipped_weapon else 0,
                          "hand": [c.name for c in p.hand]} for p in eng.state.players]}
 
 

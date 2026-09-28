@@ -215,7 +215,9 @@ function renderDetail(){
   const ps=snap.players.find(p=>p.seat===sel)||{};
   const think=((d.thinking||{})[sel]||{})[snap.round]||"";
   det.innerHTML=`<h3>👤 ${nm(sel)} <span style="color:${COLOR[sel]}">■</span></h3>
-    <div class="row"><span class="k">身份</span> <b style="color:var(--win)">${info.identity||"?"}</b> · ${info.hp_max}血/攻${info.attack}</div>
+    <div class="row"><span class="k">身份</span> <b style="color:var(--win)">${info.identity||"?"}</b></div>
+    <div class="row"><span class="k">攻击</span> 基础${info.attack}${ps.eq_atk?` + 武器${ps.eq_atk} = <b>${info.attack+ps.eq_atk}</b>`:` = ${info.attack}`}(掷这么多面的骰子) · ${info.hp_max}血上限</div>
+    <div class="row"><span class="k">技能</span> ${(window.SKILL&&SKILL[info.name])||""}</div>
     <div class="row"><span class="k">当前(第${snap.round}回合)</span> ${ps.hp!=null?ps.hp+"血":""} · ${ZONE[norm(ps.zone||"")]||""} ${ps.alive===false?"· 已淘汰":""}</div>
     <div class="row"><span class="k">装备</span> ${ps.equipped||"无"}</div>
     <div class="row"><span class="k">手牌</span> ${(ps.hand&&ps.hand.length)?ps.hand.join("、"):"空"}</div>

@@ -181,6 +181,20 @@ def cmd_result(args):
 
 
 
+SKILL_TXT = {
+ "Riley":"小偷(附加行动):d4 出4则偷同区一名玩家一张手牌(不偷已装备武器)",
+ "Elliot":"拾荒:同区无人时一次抽2张,手牌上限6",
+ "Agatha":"合成(附加行动):两张初级武器→攻击相加的武器,或减伤2的护盾",
+ "Fae":"在林区,攻击的回合也能额外抽一张牌",
+ "Natalie":"下毒(附加行动):2张食物→1张毒食物洗入本区牌堆,抽到者 -4",
+ "Cato":"最强(15血/攻4),但不能用碎片造炸弹",
+ "Garcia":"只需2枚碎片就能造一个炸弹",
+ "Tobias":"三叉戟在手且在水区时,每回合多抽一张牌",
+ "Bram":"蛮力:攻击时无视对方护甲",
+ "Iris":"在城区每局一次,可秘密查看同区一名玩家的身份",
+ "Mira":"附加行动:把食物给同区盟友吃,回血效果+2",
+ "Michael":"拿到弓时,可攻击相邻区域的玩家",
+}
 WIN_COND = {
  "Warrior":"杀敌数唯一最多者胜(并列不算)。",
  "Vendetta":"只有亲手杀死你右边的玩家才胜;被别人抢杀就输。",
@@ -232,6 +246,7 @@ def cmd_board(args):
         nb = _neighbors(eng, p.seat)
         pl = [f"# 你是 s{p.seat} {p.character.name}(私密,只有你能看)",
               f"数值: {p.hp}血 / 攻击{p.character.base_attack} | 位置:{NAME_BY_ZONE[p.zone]}",
+              f"你的技能: {SKILL_TXT.get(p.character.name,'(无)')}  ← 记得在合适时机用它!",
               f"左邻 s{nb['left']} · 右邻 s{nb['right']}",
               f"手牌: {[c.name for c in p.hand]} | 装备:{p.equipped_weapon.name if p.equipped_weapon else '无'}",
               "", f"## 你的秘密身份: {p.identity}", f"胜利条件: {WIN_COND.get(p.identity,'?')}",
@@ -259,6 +274,7 @@ def cmd_export(args):
     open_zones={z.value for z in [Zone.CENTER,Zone.N,Zone.E,Zone.S,Zone.W]}
     final_hand={p.seat:[c.name for c in p.hand] for p in st.players}
     final_eq={p.seat:(p.equipped_weapon.name if p.equipped_weapon else None) for p in st.players}
+    final_eqa={p.seat:(p.equipped_weapon.value if p.equipped_weapon else 0) for p in st.players}
     by_round={}
     for e in eng.log.events:
         by_round.setdefault(e.round_no,[]).append(e)
@@ -274,7 +290,7 @@ def cmd_export(args):
             elif e.type=="zone_closed": open_zones.discard(pl.get("zone"))
         snaps.append({"round":r,"open_zones":sorted(open_zones),
                       "players":[{"seat":s2,"zone":pos[s2],"hp":hp[s2],"alive":alive[s2],
-                                  "equipped":final_eq[s2],"hand":final_hand[s2]} for s2 in range(n)]})
+                                  "equipped":final_eq[s2],"eq_atk":final_eqa[s2],"hand":final_hand[s2]} for s2 in range(n)]})
     events=[{"type":e.type,"round":e.round_no,"actor":e.actor,"visibility":e.visibility,
              "payload":e.payload} for e in eng.log.events]
     thinking={}

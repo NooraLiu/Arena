@@ -52,7 +52,10 @@ def zone_guide(decks):
             rng = f"{vals[0]}" if len(vals) == 1 else f"{vals[0]}~{vals[-1]}"
             sign = "+" if t == "weapon" else ""
             parts.append(f"{TYPE_ZH.get(t, t)}{n}({sign}{rng})")
-        extra = " —— 在此必须攻击,攻击后额外抽 1 张" if name == "center" else ""
+        extra = ""
+        if name == "center":
+            wn = "、".join(sorted({c.name for c in cards if c.type.value == "weapon"}))
+            extra = f" —— 武器全是高级/特殊武器({wn}),只有这里有;在此必须攻击,攻击后额外抽 1 张"
         lines.append(f"- {name} {len(cards)} 张: {'、'.join(parts)}{extra}")
     return "\n".join(lines)
 

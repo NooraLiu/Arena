@@ -491,8 +491,10 @@ def _prompt(eng, seat, phase):
              + (f" · 沙尘暴锁定: {[NAME_BY_ZONE[z] for z in st.frozen_zones]}" if st.frozen_zones else "")
              + (" · 盛宴生效中(中心区多抽2张)" if st.feast_active else "")
              + (" · 盛宴预告:下回合中心区多抽2张" if st.feast_next else ""))
+    left = {z: len(st.decks.get(z, [])) for z in sorted(st.open_zones, key=lambda z: z.value)}
+    L.append("各区剩余张数: " + ", ".join(f"{NAME_BY_ZONE[z]} {n}" + ("(空!抽不到牌)" if n == 0 else "")
+                                        for z, n in left.items()))
     if phase == "move":
-        L.append("各区剩余张数: " + ", ".join(f"{NAME_BY_ZONE[z]} {len(st.decks.get(z, []))}" for z in sorted(st.open_zones, key=lambda z: z.value)))
         if not blind:
             cnt = {}
             for q in eng.alive_players():
@@ -570,8 +572,10 @@ def _record_thinking(eng, seat, phase, memo):
 
 def _apply_talk(eng, seat, d, phase):
     for m in (d.get("say") or [])[:config.MESSAGES_PER_ROUND]:
+        if isinstance(m, str):                 # bare string = public message
+            m = {"to": "all", "text": m}
         to = m.get("to")
-        to = None if to in (None, "all", "public", "公开") else int(to)
+        to = None if to in (None, "all", "public", "公开") else int(str(to).lstrip("sS"))
         if m.get("text"):
             eng.post_message(seat, to, str(m["text"]))
     if d.get("memo"):

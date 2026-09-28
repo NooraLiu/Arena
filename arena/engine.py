@@ -93,6 +93,9 @@ class Engine:
                 if isinstance(action, Attack) and action.target_seat not in obs.attackable_seats:
                     action = Draw()
             self._apply(p, action)
+            if forced:      # center: you must fight, and you also grab a card from the rich stash
+                self._draw_one(p)
+                enforce_hand_limit(p, self._skill(p).hand_limit(p))
             for extra in await self.players_by_seat[p.seat].decide_additional_actions(obs):
                 self._apply_additional(p, extra)
 

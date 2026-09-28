@@ -60,6 +60,9 @@ class Engine:
     async def movement_phase(self):
         chosen = {}
         for p in self.alive_players():
+            if p.zone in self.state.frozen_zones:          # sandstorm: pinned in place this round
+                chosen[p.seat] = p.zone
+                continue
             obs = build_observation(self, p.seat)
             mv: Move = await self.players_by_seat[p.seat].decide_move(obs)
             if mv.zone in obs.legal_move_zones:
@@ -135,10 +138,22 @@ class Engine:
                                    {"zone": action.target_zone.value}))
         elif isinstance(action, TradeCard):
             card = next((c for c in p.hand if c.id == action.card_id), None)
+            from_equipped = card is None and p.equipped_weapon is not None \
+                and p.equipped_weapon.id == action.card_id
+            if from_equipped:
+                card = p.equipped_weapon      # you may hand over the weapon you're wielding
             target = next((q for q in self.state.players if q.seat == action.to_seat and q.alive), None)
             if card is not None and target is not None:
-                p.hand.remove(card)
-                target.hand.append(card)
+                if from_equipped:
+                    p.equipped_weapon = None
+                else:
+                    p.hand.remove(card)
+                # receiver equips a weapon upgrade (mirrors _draw_one), else keeps it in hand
+                if card.type == CardType.WEAPON and (
+                        target.equipped_weapon is None or card.value > target.equipped_weapon.value):
+                    target.equipped_weapon = card
+                else:
+                    target.hand.append(card)
                 self.log.record(Event("trade", self.state.round_no, p.seat, "private",
                                        {"to": target.seat, "card": card.id}))
                 self.trade_partners[p.seat].add(target.seat)
@@ -205,7 +220,68 @@ class Engine:
                                            {"zone": bomb.zone.value, "hit": victim.seat, "hp": victim.hp}))
         self.state.bombs = [b for b in self.state.bombs if b.detonate_round != self.state.round_no]
 
+    _D4_ZONES = [Zone.N, Zone.E, Zone.S, Zone.W]   # d4: 1->forest 2->water 3->stone 4->city
+
+    def maybe_random_event(self):
+        """On an event round, roll d4 for the target outer zone, draw one event, apply it.
+        Returns (event, target_zone) if one fired, else None."""
+        if self.state.round_no not in config.EVENT_ROUNDS or not self.state.events:
+            return None
+        target = self._D4_ZONES[self.rng.randint(1, 4) - 1]
+        ev = self.state.events.pop(0)
+        self.apply_random_event(ev, target)
+        return ev, target
+
+    def _event_target_zones(self, ev, target_zone):
+        if ev.id == "E06":                              # Fire Balls: all zones except center & water
+            return [z for z in self.state.open_zones if z not in (Zone.CENTER, Zone.E)]
+        if ev.id == "E08":                              # the Feast is about the center, telegraphed
+            return [Zone.CENTER]
+        return [target_zone]                            # d4-picked outer zone
+
+    def _zone_occupants(self, zones):
+        zs = set(zones)
+        return [p for p in self.alive_players() if p.zone in zs]
+
+    def apply_random_event(self, ev, target_zone):
+        zones = self._event_target_zones(ev, target_zone)
+        victims = self._zone_occupants(zones)
+        eid = ev.id
+        if eid == "E01":                                # 变异狼群
+            for p in victims:
+                p.hp -= config.EVENT_WOLF_DAMAGE
+        elif eid == "E06":                              # Fire Balls
+            for p in victims:
+                p.hp -= config.EVENT_FIRE_DAMAGE
+        elif eid == "E02":                              # 洪水: discard HAND weapons (equipped survives)
+            for p in victims:
+                p.hand[:] = [c for c in p.hand if c.type != CardType.WEAPON]
+        elif eid == "E03":                              # 猴群: steal the equipped weapon
+            for p in victims:
+                p.equipped_weapon = None
+        elif eid == "E04":                              # 沙尘暴: freeze the zone (can't move this round)
+            for z in zones:
+                self.state.frozen_zones.add(z)
+        elif eid == "E07":                              # Hungry Dogs: pay 2 food OR take damage
+            for p in victims:
+                foods = [c for c in p.hand if c.type == CardType.FOOD]
+                if len(foods) >= 2:
+                    for c in foods[:2]:
+                        p.hand.remove(c)
+                else:
+                    p.hp -= config.EVENT_DOGS_DAMAGE
+        elif eid == "E08":                              # the Feast: telegraph +2 center draws next round
+            self.state.feast_next = True
+        # E05 和平日: nothing happens
+        self.log.record(Event("random_event", self.state.round_no, None, "public",
+                               {"id": eid, "name": ev.name, "zone": target_zone.value,
+                                "hits": [p.seat for p in victims]}))
+
     async def play_round(self):
+        # a telegraphed Feast from last round becomes active now; a fresh sandstorm starts clear
+        self.state.feast_active, self.state.feast_next = self.state.feast_next, False
+        self.state.frozen_zones = set()
+        self.maybe_random_event()      # fires on EVENT_ROUNDS, before movement (sandstorm freezes it)
         await self.negotiation_phase()
         await self.movement_phase()
         self._detonate_bombs()         # bombs planted last round go off after movement
@@ -268,7 +344,10 @@ class Engine:
         if isinstance(action, Draw):
             alone = not any(q.alive and q.seat != p.seat and q.zone == p.zone
                             for q in self.state.players)
-            for _ in range(skill.draw_count(p, alone, p.zone)):
+            draws = skill.draw_count(p, alone, p.zone)
+            if self.state.feast_active and p.zone == Zone.CENTER:   # the Feast: bonus center draws
+                draws += config.EVENT_FEAST_BONUS
+            for _ in range(draws):
                 self._draw_one(p)
             enforce_hand_limit(p, skill.hand_limit(p))
         elif isinstance(action, Attack):

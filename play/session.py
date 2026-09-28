@@ -100,6 +100,23 @@ def cmd_move(args):
                                             for p in eng.alive_players()))
 
 
+def cmd_event(args):
+    eng = _load()
+    fired = eng.maybe_random_event()
+    _save(eng)
+    if fired is None:
+        from arena import config as _cfg
+        print(f"no event this round (round {eng.state.round_no}; events fire on {_cfg.EVENT_ROUNDS}; deck left {len(eng.state.events)})")
+        return
+    ev, zone = fired
+    print(f"⚡ 随机事件 {ev.id} 「{ev.name}」→ {NAME_BY_ZONE[zone]} 区。效果: {ev.effect}")
+    if eng.state.frozen_zones:
+        print(f"  沙尘暴锁定区域(本轮不能移动): {[NAME_BY_ZONE[z] for z in eng.state.frozen_zones]}")
+    if eng.state.feast_next:
+        print("  盛宴预告:下回合待在中心区的人多抽 2 张牌。")
+    print("  当前血量: " + ", ".join(f"{p.character.name}={p.hp}" for p in eng.alive_players()))
+
+
 def cmd_detonate(args):
     eng = _load()
     before = {p.seat: p.hp for p in eng.state.players}
@@ -240,6 +257,10 @@ def cmd_board(args):
             lines.append(f"- r{e.round_no} ☠ s{e.actor} 被淘汰")
         elif e.type == "bomb":
             lines.append(f"- r{e.round_no} 炸弹在 {e.payload['zone']} 命中 s{e.payload['hit']}")
+        elif e.type == "random_event":
+            hits = e.payload.get("hits") or []
+            who = ("命中 " + ",".join(f"s{s}" for s in hits)) if hits else "无人在该区"
+            lines.append(f"- r{e.round_no} ⚡随机事件 {e.payload['id']}「{e.payload['name']}」@{e.payload['zone']} — {who}")
     open(f"{LIVE}/board.md","w",encoding="utf-8").write("\n".join(lines)+"\n")
     # private files
     for p in st.players:
@@ -316,6 +337,7 @@ def main():
     sub.add_parser("snapshot")
     pm = sub.add_parser("move"); pm.add_argument("mapping")
     sub.add_parser("detonate")
+    sub.add_parser("event")
     pa = sub.add_parser("act"); pa.add_argument("seat", type=int); pa.add_argument("rest", nargs="*")
     sub.add_parser("endround")
     ps = sub.add_parser("say"); ps.add_argument("seat", type=int); ps.add_argument("to"); ps.add_argument("text", nargs="+")
@@ -326,7 +348,7 @@ def main():
     sub.add_parser("export")
     args = ap.parse_args()
     {"init": cmd_init, "snapshot": cmd_snapshot, "move": cmd_move,
-     "detonate": cmd_detonate, "act": cmd_act, "endround": cmd_endround,
+     "detonate": cmd_detonate, "event": cmd_event, "act": cmd_act, "endround": cmd_endround,
      "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board, "export": cmd_export}[args.cmd](args)
 
 

@@ -17,6 +17,11 @@ ROUND_CAP = 100       # hard termination guarantee
 BOMB_DAMAGE = 6       # everyone in the target zone; armor reduces
 BOMB_FRAGMENTS = 3    # fragments to build a bomb (Garcia: 2)
 MESSAGES_PER_ROUND = 2  # max messages a player may send in the negotiation phase
+EVENT_ROUNDS = (4, 6, 7, 9)   # rounds on which a random event fires (roll d4 for the target outer zone)
+EVENT_WOLF_DAMAGE = 4         # E01 变异狼群
+EVENT_FIRE_DAMAGE = 3         # E06 Fire Balls
+EVENT_DOGS_DAMAGE = 3         # E07 Hungry Dogs (if you can't pay 2 food)
+EVENT_FEAST_BONUS = 2         # E08 The Feast: extra draws for center dwellers next round
 
 
 def _weapon(name, bonus, i):

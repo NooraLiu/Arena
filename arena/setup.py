@@ -17,9 +17,11 @@ def new_game(num_players: int, rng: random.Random,
     are used. The xlsx loader (and its openpyxl dependency) is imported lazily
     so the core engine stays stdlib-only.
     """
+    events = []
     if data_path is not None:
-        from .deck_loader import load_game_data
+        from .deck_loader import load_game_data, load_events
         characters, decks = load_game_data(data_path, rng)
+        events = load_events(data_path, rng)
         if not characters:
             raise ValueError(
                 f"没有从 {data_path} 的『人物』表读到任何角色——请先填好人物行(HP/攻击),再运行。")
@@ -37,7 +39,7 @@ def new_game(num_players: int, rng: random.Random,
         players.append(PlayerState(seat=seat, character=ch, hp=ch.hp_max, zone=zone))
         pbs[seat] = players_factory()
     st = GameState(round_no=1, players=players, decks=decks,
-                   open_zones=set(Zone), first_seat=0)
+                   open_zones=set(Zone), first_seat=0, events=events)
     ids = identities.assign(num_players, rng)
     for pl, ident in zip(players, ids):
         pl.identity = ident

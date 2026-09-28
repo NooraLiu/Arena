@@ -118,6 +118,7 @@ function actText(e){const p=e.payload||{};switch(e.type){
   case "steal":return `${nm(e.actor)} 偷 ${nm(p.from)} 一张牌`;
   case "craft":return `${nm(e.actor)} 合成装备`;
   case "trade":return `${nm(e.actor)}→${nm(p.to)} 给牌`;
+  case "random_event":{const h=(p.hits||[]).map(nm).join("、");return `<span style="color:var(--zone)">⚡ 随机事件「${p.name||p.id}」@${ZONE[p.zone]||p.zone}${h?(" — 命中 "+h):" — 无人在该区"}</span>`;}
   default:return e.type;}}
 function evText(e){const p=e.payload||{};switch(e.type){
   case "attack":return `${nm(e.actor)} 攻击 ${nm(p.target)} 伤害${p.damage}`;
@@ -193,7 +194,7 @@ function renderRound(){
   const dmb=document.getElementById("dm");
   dmb.innerHTML=`<h3>✉️ 私信板(观战全见)</h3>`+(dm.length?dm.map(e=>`<div class="msg dm">${nm(e.actor)}→${nm(e.payload.to)}(r${e.round}): ${e.payload.text}</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无)</div>`);
   // action log grouped by round
-  const ACT=new Set(["attack","draw","eliminated","zone_closed","bomb","plant_bomb","poison","heal","steal","craft","trade"]);
+  const ACT=new Set(["attack","draw","eliminated","zone_closed","bomb","plant_bomb","poison","heal","steal","craft","trade","random_event"]);
   const acts=(d.events||[]).filter(e=>ACT.has(e.type));
   const byR={};acts.forEach(e=>{(byR[e.round]=byR[e.round]||[]).push(e);});
   const al=document.getElementById("actlog");

@@ -112,6 +112,16 @@ class Bomb:
 
 
 @dataclass
+class RandomEvent:
+    id: str                  # e.g. "E01"
+    name: str                # 事件名, e.g. "变异狼群"
+    description: str = ""     # flavor text
+    target: str = ""         # 影响区域 (raw text, for display)
+    effect: str = ""         # 效果 (raw text, for display)
+    count: int = 1           # 张数 (copies in the event deck)
+
+
+@dataclass
 class GameState:
     round_no: int
     players: List[PlayerState]
@@ -119,3 +129,7 @@ class GameState:
     open_zones: Set[Zone]
     first_seat: int
     bombs: List["Bomb"] = field(default_factory=list)
+    events: List["RandomEvent"] = field(default_factory=list)   # remaining random-event deck
+    frozen_zones: Set["Zone"] = field(default_factory=set)      # can't move OUT this round (sandstorm)
+    feast_next: bool = False                                     # the Feast telegraphed this round
+    feast_active: bool = False                                   # center draws +2 THIS round (Feast in effect)

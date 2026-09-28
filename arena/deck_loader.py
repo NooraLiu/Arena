@@ -13,7 +13,7 @@ import random
 import re
 from typing import Dict, List, Optional, Tuple
 import openpyxl
-from .models import Zone, Card, CardType, Character
+from .models import Zone, Card, CardType, Character, RandomEvent
 
 OUTER = [Zone.N, Zone.E, Zone.S, Zone.W]
 ALL_ZONES = [Zone.CENTER] + OUTER
@@ -147,6 +147,34 @@ def load_decks(path: str, rng: Optional[random.Random] = None) -> Dict[Zone, Lis
         for z in decks:
             rng.shuffle(decks[z])
     return decks
+
+
+def load_events(path: str, rng: Optional[random.Random] = None) -> List[RandomEvent]:
+    """Read the 随机事件 sheet into a shuffled event deck (one entry per copy).
+
+    Skips the example row (ID starting with 示例) and the 张数合计 summary row.
+    """
+    wb = _open(path)
+    if "随机事件" not in wb.sheetnames:
+        return []
+    events: List[RandomEvent] = []
+    for row in _iter_rows(wb["随机事件"], "事件名"):
+        eid = str(row.get("ID") or "").strip()
+        name = str(row.get("事件名") or "").strip()
+        if not eid or eid.startswith("示例") or "示例" in name:
+            continue
+        count = max(1, _int(row.get("张数"), 1))
+        for _ in range(count):
+            events.append(RandomEvent(
+                id=eid, name=name,
+                description=str(row.get("描述") or ""),
+                target=str(row.get("影响区域") or ""),
+                effect=str(row.get("效果") or ""),
+                count=count,
+            ))
+    if rng is not None:
+        rng.shuffle(events)
+    return events
 
 
 def load_game_data(path: str, rng: Optional[random.Random] = None

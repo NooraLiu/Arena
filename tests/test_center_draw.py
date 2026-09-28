@@ -29,6 +29,16 @@ def test_center_fighters_attack_and_also_draw_a_card():
     assert a.hp < 10 and b.hp < 10
 
 
+def test_feast_boosts_the_center_fighters_draw():
+    a = PlayerState(0, Character("A", 10, 3), 10, Zone.CENTER)
+    b = PlayerState(1, Character("B", 10, 2), 10, Zone.CENTER)
+    eng = _engine([a, b])
+    eng.state.feast_active = True
+    eng.state.decks[Zone.CENTER] = [_c(f"f{i}", "FOOD", 1) for i in range(6)]
+    asyncio.run(eng.action_phase())
+    assert len(eng.state.decks[Zone.CENTER]) == 0          # each drew 1 + 2 feast bonus
+
+
 def test_center_draw_upgrades_attack_over_rounds():
     a = PlayerState(0, Character("A", 10, 3), 10, Zone.CENTER, equipped_weapon=_c("木棍", "WEAPON", 2))
     b = PlayerState(1, Character("B", 10, 4), 10, Zone.CENTER, equipped_weapon=_c("铁管", "WEAPON", 2))

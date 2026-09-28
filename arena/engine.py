@@ -94,10 +94,16 @@ class Engine:
                     action = Draw()
             self._apply(p, action)
             if forced:      # center: you must fight, and you also grab a card from the rich stash
-                self._draw_one(p)
-                enforce_hand_limit(p, self._skill(p).hand_limit(p))
+                self.center_draw(p)
             for extra in await self.players_by_seat[p.seat].decide_additional_actions(obs):
                 self._apply_additional(p, extra)
+
+    def center_draw(self, p: PlayerState):
+        """The draw that comes with a forced center attack (+Feast bonus while it's active)."""
+        n = 1 + (config.EVENT_FEAST_BONUS if self.state.feast_active else 0)
+        for _ in range(n):
+            self._draw_one(p)
+        enforce_hand_limit(p, self._skill(p).hand_limit(p))
 
     def _lowest_hp(self, seats):
         return sorted(seats, key=lambda s: self._p(s).hp)[0]

@@ -20,7 +20,9 @@ import random
 import sys
 
 from arena.setup import new_game
-from arena.models import Zone, Draw, Attack, PlantBomb, TradeCard
+from arena.models import (Zone, Draw, Attack, PlantBomb, TradeCard, CardType,
+                          StealCard, CraftWeapon, CraftShield, PoisonFood)
+from arena import config
 from arena.map import legal_moves
 from arena.engine import build_observation
 
@@ -330,6 +332,310 @@ def cmd_export(args):
     print("wrote app/live/game.json (%d snapshots, %d events)"%(len(snaps),len(events)))
 
 
+# ---------------------------------------------------------------------------
+# Lean agent protocol: one fresh `arena-player` agent per decision, fed a compact
+# prompt built here (rules live in .claude/agents/arena-player.md). Only seats with
+# a real choice are asked; the rest are auto-resolved.
+# ---------------------------------------------------------------------------
+TYPE_ZH = {"weapon": "武器", "food": "食物", "armor": "护甲", "ammo": "碎片"}
+PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison")
+
+
+def _memos(eng):
+    if not hasattr(eng, "memos"):
+        eng.memos = {}
+    return eng.memos
+
+
+def _atk(p):
+    return p.character.base_attack + (p.equipped_weapon.value if p.equipped_weapon else 0)
+
+
+def _legal_zones(eng, p):
+    st = eng.state
+    if p.zone in st.frozen_zones:
+        return [p.zone]
+    if st.round_no == 1:
+        return sorted(st.open_zones, key=lambda z: z.value)
+    return list(legal_moves(p.zone, st.open_zones))
+
+
+def _extras(eng, p):
+    """Additional actions this seat can actually take right now (declare excluded)."""
+    sk = eng._skill(p)
+    mates = [q for q in eng.alive_players() if q.seat != p.seat and q.zone == p.zone]
+    out = []
+    if mates and (p.hand or p.equipped_weapon):
+        out.append("trade:座位:牌ID")
+    if sk.can_steal() and any(q.hand for q in mates):
+        out.append("steal:座位")
+    if sk.can_craft() and len([c for c in p.hand if c.type == CardType.WEAPON and c.value <= 2]) >= 2:
+        out += ["craft", "shield"]
+    if sk.can_poison() and len([c for c in p.hand if c.type == CardType.FOOD]) >= 2:
+        out.append("poison")
+    if sk.can_make_bomb() and len([c for c in p.hand if c.type == CardType.AMMO]) >= sk.bomb_fragments():
+        out.append("bomb:区名")
+    return out
+
+
+def _plan(eng, phase):
+    """-> (auto: {seat: decision}, ask: [seats])"""
+    auto, ask = {}, []
+    for p in eng.alive_players():
+        if phase == "move":
+            legal = _legal_zones(eng, p)
+            if len(legal) == 1:
+                auto[p.seat] = {"move": NAME_BY_ZONE[legal[0]]}
+            else:
+                ask.append(p.seat)
+        else:
+            atk = build_observation(eng, p.seat).attackable_seats
+            extras = _extras(eng, p)
+            if p.zone == Zone.CENTER and len(atk) == 1 and not extras:
+                auto[p.seat] = {"action": f"attack:{atk[0]}"}      # forced, no choice of target
+            elif not atk and not extras:
+                auto[p.seat] = {"action": "draw"}                   # alone, nothing else to do
+            else:
+                ask.append(p.seat)
+    return auto, ask
+
+
+def _card_str(c):
+    return f"{c.name}[{c.id}]({TYPE_ZH.get(c.type.value, c.type.value)}{c.value})"
+
+
+def _prompt(eng, seat, phase):
+    st, p = eng.state, eng._p(seat)
+    r = st.round_no
+    nb = _neighbors(eng, seat)
+    head = "移动阶段" if phase == "move" else "行动阶段(位置已公开)"
+    L = [f"第 {r} 回合 · {head}。你是 s{seat} {p.character.name}。"]
+    eq = f"{p.equipped_weapon.name}(+{p.equipped_weapon.value})" if p.equipped_weapon else "无"
+    L.append(f"【你】{p.hp}/{p.character.hp_max}血 · 攻击 {p.character.base_attack}+武器={_atk(p)} · 装备 {eq}")
+    L.append(f"手牌: {', '.join(_card_str(c) for c in p.hand) or '无'}")
+    L.append(f"技能: {SKILL_TXT.get(p.character.name, '无')}")
+    L.append(f"【秘密身份】{p.identity} —— {WIN_COND.get(p.identity, '?')}")
+    extra_id = ""
+    if p.identity == "Vendetta":
+        extra_id = f"你的复仇对象是右邻 s{nb['right']} {eng._p(nb['right']).character.name}。"
+    L.append(f"左邻 s{nb['left']} · 右邻 s{nb['right']}。{extra_id}")
+    if seat in eng.declarations:
+        L.append(f"你已声明: {eng.declarations[seat]}")
+    pool = " / ".join(sorted({q.identity for q in st.players if q.identity}))
+    L.append(f"【在场身份池】{pool}")
+    blind = phase == "move" and r == 1
+    L.append("【场上】" + ("(第 1 回合,位置未知)" if blind else "位置为" + ("上回合结束时" if phase == "move" else "本回合")))
+    for q in st.players:
+        if not q.alive:
+            L.append(f"  s{q.seat} {q.character.name}: 已淘汰")
+            continue
+        zq = "?" if blind else NAME_BY_ZONE[q.zone]
+        eqq = f"{q.equipped_weapon.name}+{q.equipped_weapon.value}" if q.equipped_weapon else "无"
+        L.append(f"  s{q.seat} {q.character.name}: {q.hp}/{q.character.hp_max}血 · {zq} · 武器 {eqq}")
+    L.append(f"开放区: {', '.join(sorted(NAME_BY_ZONE[z] for z in st.open_zones))}"
+             + (f" · 沙尘暴锁定: {[NAME_BY_ZONE[z] for z in st.frozen_zones]}" if st.frozen_zones else "")
+             + (" · 盛宴生效中(中心区多抽2张)" if st.feast_active else "")
+             + (" · 盛宴预告:下回合中心区多抽2张" if st.feast_next else ""))
+    recent = [e for e in eng.log.events if e.type in PUBLIC_EV and e.round_no >= r - 1]
+    if recent:
+        L.append("【近期公开事件】")
+        for e in recent[-15:]:
+            pl = e.payload or {}
+            if e.type == "attack":
+                L.append(f"  r{e.round_no} s{e.actor}→s{pl['target']} 伤{pl['damage']}")
+            elif e.type == "eliminated":
+                L.append(f"  r{e.round_no} ☠ s{e.actor} 淘汰")
+            elif e.type == "random_event":
+                L.append(f"  r{e.round_no} ⚡{pl['name']}@{pl['zone']} 命中{pl['hits']}")
+            elif e.type == "zone_closed":
+                L.append(f"  r{e.round_no} 关闭 {pl['zone']}")
+            elif e.type == "bomb":
+                L.append(f"  r{e.round_no} 💥{pl['zone']} 炸到 s{pl['hit']}")
+            else:
+                L.append(f"  r{e.round_no} s{e.actor} {e.type}")
+    msgs = [m for m in eng.visible_messages(seat) if m.round_no >= r - 1]
+    if msgs:
+        L.append("【近期消息】")
+        for m in msgs[-10:]:
+            tag = "公开" if m.to is None else ("私聊给你" if m.to == seat else f"你私聊s{m.to}")
+            L.append(f"  r{m.round_no} s{m.sender}[{tag}]: {m.text}")
+    L.append(f"【你上回合的备忘】{_memos(eng).get(seat, '(无)')}")
+    if phase == "move":
+        L.append(f"可去: {', '.join(NAME_BY_ZONE[z] for z in _legal_zones(eng, p))}")
+        L.append('回复: {"say":[...],"move":"区名","memo":"..."}')
+    else:
+        atk = build_observation(eng, seat).attackable_seats
+        mates = [q for q in eng.alive_players() if q.seat != seat and q.zone == p.zone]
+        L.append(f"本区同伴: {', '.join(f's{q.seat}' for q in mates) or '无'} · 可攻击: {atk or '无'}")
+        if p.zone == Zone.CENTER and atk:
+            L.append("你在中心区:必须攻击(自己选目标),攻击后自动抽 1 张中心牌。")
+        ex = _extras(eng, p)
+        L.append(f"可用附加行动: {', '.join(ex) if ex else '无'}"
+                 + (" · 也可 declare:座位=身份,..." if p.identity == "Social Butterfly" else ""))
+        L.append('回复: {"action":"draw或attack:座位","extra":[...],"say":[...],"memo":"..."}')
+    return "\n".join(L)
+
+
+def _record_thinking(eng, seat, phase, memo):
+    import json as _json
+    tf = "app/live/think.json"
+    try:
+        t = _json.load(open(tf, encoding="utf-8"))
+    except Exception:
+        t = {}
+    r = str(eng.state.round_no)
+    cur = t.setdefault(str(seat), {}).get(r, "")
+    tag = "移动" if phase == "move" else "行动"
+    t[str(seat)][r] = (cur + " | " if cur else "") + f"[{tag}] {memo}"
+    os.makedirs("app/live", exist_ok=True)
+    _json.dump(t, open(tf, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+
+
+def _apply_talk(eng, seat, d, phase):
+    for m in (d.get("say") or [])[:config.MESSAGES_PER_ROUND]:
+        to = m.get("to")
+        to = None if to in (None, "all", "public", "公开") else int(to)
+        if m.get("text"):
+            eng.post_message(seat, to, str(m["text"]))
+    if d.get("memo"):
+        _memos(eng)[seat] = str(d["memo"])[:400]
+        _record_thinking(eng, seat, phase, str(d["memo"]))
+
+
+def _apply_declare(eng, seat, spec):
+    pairs = [x.split("=") for x in spec.split(",") if "=" in x]
+    eng.declare(seat, [(int(a.strip().lstrip("s")), b.strip()) for a, b in pairs])
+
+
+def cmd_plan(args):
+    eng = _load()
+    auto, ask = _plan(eng, args.phase)
+    print(json.dumps({"auto": {str(k): v for k, v in auto.items()}, "ask": ask}, ensure_ascii=False))
+
+
+RULES_FILE = ".claude/agents/arena-player.md"
+
+
+def _rules_text():
+    """The arena-player agent's system prompt (frontmatter stripped) — for agent types
+    that can't load it themselves (e.g. a general-purpose fallback)."""
+    txt = open(RULES_FILE, encoding="utf-8").read()
+    if txt.startswith("---"):
+        txt = txt.split("---", 2)[2]
+    return txt.strip()
+
+
+def cmd_prompt(args):
+    eng = _load()
+    body = _prompt(eng, args.seat, args.phase)
+    if args.rules:
+        body = _rules_text() + "\n\n=== 本次决策 ===\n" + body
+    print(body)
+
+
+def cmd_startround(args):
+    """Round start: activate a telegraphed Feast, clear sandstorm, maybe fire a random event."""
+    eng = _load()
+    st = eng.state
+    st.feast_active, st.feast_next = st.feast_next, False
+    st.frozen_zones = set()
+    _save(eng)
+    cmd_event(args)
+
+
+def cmd_movephase(args):
+    eng = _load()
+    st = eng.state
+    decisions = {int(k): v for k, v in json.loads(args.decisions).items()}
+    auto, _ = _plan(eng, "move")
+    for seat, d in decisions.items():
+        _apply_talk(eng, seat, d, "move")
+        if d.get("declare"):
+            _apply_declare(eng, seat, d["declare"])
+    for p in eng.alive_players():
+        d = decisions.get(p.seat) or auto.get(p.seat) or {}
+        legal = _legal_zones(eng, p)
+        want = d.get("move")
+        try:
+            dest = _zone(want) if want and want != "stay" else p.zone
+        except KeyError:
+            dest = p.zone
+        if dest not in legal:
+            dest = p.zone if p.zone in legal else legal[0]
+            if want:
+                print(f"! s{p.seat} 非法移动 {want},改为 {NAME_BY_ZONE[dest]}")
+        p.zone = dest
+        from arena.events import Event as _Ev
+        eng.log.record(_Ev("move", st.round_no, p.seat, "public", {"to": dest.value}))
+    before = {p.seat: p.hp for p in st.players}
+    eng._detonate_bombs()
+    _save(eng)
+    print("位置: " + ", ".join(f"s{p.seat}{p.character.name}={NAME_BY_ZONE[p.zone]}" for p in eng.alive_players()))
+    hits = [f"s{s} {before[s]}→{eng._p(s).hp}" for s in before if eng._p(s).hp != before[s]]
+    if hits:
+        print("💥 炸弹: " + "; ".join(hits))
+
+
+def _parse_extra(eng, seat, x):
+    x = str(x).strip()
+    k, _, rest = x.partition(":")
+    if k == "steal":
+        return StealCard(int(rest))
+    if k == "trade":
+        to, _, cid = rest.partition(":")
+        return TradeCard(int(to), cid)
+    if k == "craft":
+        return CraftWeapon()
+    if k == "shield":
+        return CraftShield()
+    if k == "poison":
+        return PoisonFood()
+    if k == "bomb":
+        return PlantBomb(_zone(rest))
+    return None
+
+
+def cmd_actphase(args):
+    eng = _load()
+    st = eng.state
+    decisions = {int(k): v for k, v in json.loads(args.decisions).items()}
+    auto, _ = _plan(eng, "act")
+    start = len(eng.log.events)
+    order = sorted(eng.alive_players(), key=lambda q: (q.seat - st.first_seat) % 100)
+    for p in order:
+        if not p.alive:
+            continue
+        d = decisions.get(p.seat) or auto.get(p.seat) or {"action": "draw"}
+        if p.seat in decisions:
+            _apply_talk(eng, p.seat, d, "act")
+        eng._maybe_heal(p)
+        atk = build_observation(eng, p.seat).attackable_seats
+        act = str(d.get("action", "draw"))
+        tgt = int(act.split(":")[1]) if act.startswith("attack:") else None
+        if p.zone == Zone.CENTER and atk:                  # forced fight + center draw
+            eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)))
+            eng.center_draw(p)
+        elif tgt in atk:
+            eng._apply(p, Attack(tgt))
+        else:
+            eng._apply(p, Draw())
+        for x in d.get("extra") or []:
+            if str(x).startswith("declare:"):
+                _apply_declare(eng, p.seat, str(x)[len("declare:"):])
+                continue
+            a = _parse_extra(eng, p.seat, x)
+            if a is not None:
+                eng._apply_additional(p, a)
+    _save(eng)
+    for e in eng.log.events[start:]:
+        pl = e.payload or {}
+        if e.type == "attack":
+            print(f"  s{e.actor}→s{pl['target']} 掷{pl['roll']} 伤{pl['damage']}{' 倒地' if pl['downed'] else ''}")
+        elif e.type in ("draw", "heal", "steal", "trade", "craft", "poison_planted", "plant_bomb", "poison"):
+            print(f"  s{e.actor} {e.type} {pl}")
+    print("血量: " + ", ".join(f"s{p.seat}={p.hp}" for p in eng.alive_players()))
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -338,6 +644,12 @@ def main():
     pm = sub.add_parser("move"); pm.add_argument("mapping")
     sub.add_parser("detonate")
     sub.add_parser("event")
+    sub.add_parser("startround")
+    pp = sub.add_parser("plan"); pp.add_argument("phase", choices=["move", "act"])
+    ppr = sub.add_parser("prompt"); ppr.add_argument("seat", type=int); ppr.add_argument("phase", choices=["move", "act"])
+    ppr.add_argument("--rules", action="store_true", help="prepend the arena-player rules (fallback agent types)")
+    pmv = sub.add_parser("movephase"); pmv.add_argument("decisions")
+    pac = sub.add_parser("actphase"); pac.add_argument("decisions")
     pa = sub.add_parser("act"); pa.add_argument("seat", type=int); pa.add_argument("rest", nargs="*")
     sub.add_parser("endround")
     ps = sub.add_parser("say"); ps.add_argument("seat", type=int); ps.add_argument("to"); ps.add_argument("text", nargs="+")
@@ -349,6 +661,8 @@ def main():
     args = ap.parse_args()
     {"init": cmd_init, "snapshot": cmd_snapshot, "move": cmd_move,
      "detonate": cmd_detonate, "event": cmd_event, "act": cmd_act, "endround": cmd_endround,
+     "startround": cmd_startround, "plan": cmd_plan, "prompt": cmd_prompt,
+     "movephase": cmd_movephase, "actphase": cmd_actphase,
      "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board, "export": cmd_export}[args.cmd](args)
 
 

@@ -118,6 +118,8 @@ function actText(e){const p=e.payload||{};switch(e.type){
   case "steal":return `${nm(e.actor)} 偷 ${nm(p.from)} 一张牌`;
   case "craft":return `${nm(e.actor)} 合成装备`;
   case "trade":return `${nm(e.actor)}→${nm(p.to)} 给牌`;
+  case "feed":return `${nm(e.actor)} 喂 ${nm(p.to)} 吃东西→${p.hp}`;
+  case "peek":return `👁 ${nm(e.actor)} 偷看 ${nm(p.target)} 的身份:${p.identity}`;
   case "random_event":{const h=(p.hits||[]).map(nm).join("、");return `<span style="color:var(--zone)">⚡ 随机事件「${p.name||p.id}」@${ZONE[p.zone]||p.zone}${h?(" — 命中 "+h):" — 无人在该区"}</span>`;}
   default:return e.type;}}
 function evText(e){const p=e.payload||{};switch(e.type){
@@ -194,7 +196,7 @@ function renderRound(){
   const dmb=document.getElementById("dm");
   dmb.innerHTML=`<h3>✉️ 私信板(观战全见)</h3>`+(dm.length?dm.map(e=>`<div class="msg dm">${nm(e.actor)}→${nm(e.payload.to)}(r${e.round}): ${e.payload.text}</div>`).join(""):`<div style="color:var(--dim);font-size:13px">(暂无)</div>`);
   // action log grouped by round
-  const ACT=new Set(["attack","draw","eliminated","zone_closed","bomb","plant_bomb","poison","heal","steal","craft","trade","random_event"]);
+  const ACT=new Set(["attack","draw","eliminated","zone_closed","bomb","plant_bomb","poison","heal","steal","craft","trade","random_event","feed","peek"]);
   const acts=(d.events||[]).filter(e=>ACT.has(e.type));
   const byR={};acts.forEach(e=>{(byR[e.round]=byR[e.round]||[]).push(e);});
   const al=document.getElementById("actlog");
@@ -235,9 +237,22 @@ async function loadJSON(url){
   }catch(e){st.textContent="失败:"+e;}
 }
 const btn=document.getElementById("go");
-btn.addEventListener("click",async()=>{btn.disabled=true;
+btn.addEventListener("click",async()=>{btn.disabled=true;if(LIVE){clearInterval(LIVE);LIVE=null;}
   await loadJSON(`/api/new_game?players=${document.getElementById("players").value}`);btn.disabled=false;});
-document.getElementById("load").addEventListener("click",()=>loadJSON("/live/game.json"));
+// live mode: poll the session export; follow the newest round unless the viewer scrolled back
+let LIVE=null, LAST="";
+async function pollLive(){
+  try{const r=await fetch("/live/game.json",{cache:"no-store"});const t=await r.text();
+    if(t===LAST)return; LAST=t; const d=JSON.parse(t);
+    const atEnd=!DATA||IDX>=(DATA.snapshots||[]).length-1, keep=sel;
+    DATA=d; if(atEnd)IDX=(d.snapshots||[]).length-1; sel=keep; render();
+    document.getElementById("status").textContent="实时对局 · 自动刷新中 · "+new Date().toLocaleTimeString();
+  }catch(e){document.getElementById("status").textContent="实时读取失败:"+e;}
+}
+document.getElementById("load").addEventListener("click",()=>{
+  if(LIVE){clearInterval(LIVE);LIVE=null;document.getElementById("status").textContent="已停止自动刷新";return;}
+  LAST="";DATA=null;pollLive();LIVE=setInterval(pollLive,2500);
+});
 buildCfg(12);
 </script>
 </body>

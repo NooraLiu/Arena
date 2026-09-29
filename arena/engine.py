@@ -412,7 +412,8 @@ class Engine:
             defender = self._p(action.target_seat)
             bonus = self._skill(defender).damage_reduction(defender, defender.zone)
             res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION,
-                                 bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p))
+                                 bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p),
+                                 rolls=skill.attack_rolls(p))
             self.ever_attacked.add(p.seat)
             self.last_attacker[defender.seat] = p.seat
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",

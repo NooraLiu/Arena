@@ -17,12 +17,13 @@ def _take_armor(defender: PlayerState):
 
 
 def resolve_attack(attacker: PlayerState, defender: PlayerState,
-                   rng: random.Random, armor_reduction: int, bonus_reduction: int = 0, ignore_armor: bool = False) -> Dict:
+                   rng: random.Random, armor_reduction: int, bonus_reduction: int = 0, ignore_armor: bool = False,
+                   rolls: int = 1) -> Dict:
     """Apply one attack's damage. Does NOT finalize death: a defender dropped to
     <=0 HP is 'downed' but stays on the board until end-of-round resolution, so
     they still get their action this round (heal / retaliate / draw)."""
     faces = max(1, attack_value(attacker))
-    roll = rng.randint(1, faces)
+    roll = max(rng.randint(1, faces) for _ in range(max(1, rolls)))   # e.g. Bram rolls twice, keeps the higher
     if ignore_armor:                                               # e.g. Bram smashes through armor
         reduction = bonus_reduction
     else:

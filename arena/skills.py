@@ -39,6 +39,10 @@ class Skill:
         """Whether this player's attacks bypass the target's armor."""
         return False
 
+    def attack_rolls(self, player) -> int:
+        """How many attack dice to roll (the highest one counts)."""
+        return 1
+
     def can_make_bomb(self) -> bool:
         return True
 
@@ -74,9 +78,9 @@ class NoSkill(Skill):
 
 
 class Bram(Skill):
-    # 蛮力:攻击时无视对方护甲(护甲不减伤,也不被消耗)。
-    def ignores_armor(self, player):
-        return True
+    # 重击:攻击时掷两次骰子,取较高的一次。
+    def attack_rolls(self, player):
+        return 2
 
 
 class Elliot(Skill):

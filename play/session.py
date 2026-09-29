@@ -424,7 +424,7 @@ def _extras(eng, p):
     if sk.can_steal() and any(q.hand for q in mates):
         out.append("steal:座位")
     if sk.can_craft() and len([c for c in p.hand if c.type == CardType.WEAPON and c.value <= 2]) >= 2:
-        out += ["craft", "shield"]
+        out.append("craft")
     if sk.can_poison() and len([c for c in p.hand if c.type == CardType.FOOD]) >= 2:
         out.append("poison")
     if sk.can_peek() and p.seat not in getattr(eng, "peek_used", set()) and p.zone == Zone.W and mates:
@@ -782,8 +782,8 @@ def _parse_extra(eng, seat, x):
         return TradeCard(_seat(to), cid)
     if k == "craft":
         return CraftWeapon()
-    if k == "shield":
-        return CraftShield()
+    if k == "shield":                     # shields are gone (no armor in the game); craft a weapon
+        return CraftWeapon()
     if k == "poison":
         return PoisonFood()
     if k == "peek":

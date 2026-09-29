@@ -48,15 +48,21 @@ def test_registry_maps_names_and_defaults_to_no_skill():
     assert isinstance(skills.for_character("Nobody"), skills.NoSkill)   # unknown -> no skill
 
 
-# ---- Bram: attacks ignore the target's armor ----
-def test_bram_attack_ignores_target_armor():
+# ---- Bram: heavy blow, rolls two attack dice and keeps the higher ----
+class SeqRNG:
+    def __init__(self, rolls):
+        self.rolls = list(rolls)
+
+    def randint(self, a, b):
+        return self.rolls.pop(0)
+
+
+def test_bram_rolls_twice_and_keeps_the_higher():
     bram = PlayerState(0, Character("Bram", 11, 4), 11, Zone.N)   # d4
-    armor = Card("a", CardType.ARMOR, 3, name="shield")
-    victim = PlayerState(1, Character("V", 13, 2), 13, Zone.N, hand=[armor])
-    eng = _engine([bram, victim], {0: Attack(1), 1: Draw()}, first_seat=0, rng=FakeRNG(3))
+    victim = PlayerState(1, Character("V", 13, 2), 13, Zone.N)
+    eng = _engine([bram, victim], {0: Attack(1), 1: Draw()}, first_seat=0, rng=SeqRNG([1, 4]))
     asyncio.run(eng.action_phase())
-    assert victim.hp == 13 - 3            # full roll 3, armor ignored
-    assert armor in victim.hand           # armor not even consumed
+    assert victim.hp == 13 - 4
 
 
 def test_normal_attacker_is_blocked_by_armor():

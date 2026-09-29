@@ -1,0 +1,74 @@
+import argparse
+import json
+import os
+
+import pytest
+
+from app import human_api as A
+
+
+def _ns(**kw):
+    base = dict(players=6, seed=11, human_seats="0", humans=0, decisions=None)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+@pytest.fixture
+def game(live):
+    live.cmd_init(_ns())
+    live.advance()                               # -> round 1 move, everyone asked
+    return live
+
+
+def _key(live, seat=0):
+    return live._load().humans[seat]
+
+
+def test_wrong_key_or_other_seats_key_is_403(game):
+    assert A.get_view(0, "nope")[0] == 403
+    assert A.get_view(1, _key(game))[0] == 403    # seat 1 is an AI seat: no key works
+    assert A.post_decision(0, "nope", {"move": "center"})[0] == 403
+
+
+def test_view_and_valid_submission_writes_agent_format(game):
+    code, v = A.get_view(0, _key(game))
+    assert code == 200 and v["status"] == "your_turn"
+    code, r = A.post_decision(0, _key(game), {"move": "center", "memo": "先抢武器"})
+    assert code == 200
+    d = json.load(open(f"{game.DECISION_DIR}/s0.json", encoding="utf-8"))
+    assert d == {"move": "center", "say": [], "memo": "先抢武器"}
+    assert A.get_view(0, _key(game))[1]["status"] == "submitted"
+    assert A.post_decision(0, _key(game), {"move": "forest"})[0] == 200   # may change before it resolves
+
+
+def test_invalid_submission_is_400_and_writes_nothing(game):
+    code, r = A.post_decision(0, _key(game), {"move": "moon"})
+    assert code == 400 and r["errors"]
+    assert not os.path.exists(f"{game.DECISION_DIR}/s0.json")
+
+
+def test_stale_submission_after_step_resolved_is_409(game):
+    eng = game._load()
+    eng.phase = "over"
+    game._save(eng)
+    code, r = A.post_decision(0, _key(game), {"move": "center"})
+    assert code == 409 and r["error"]
+
+
+def test_dead_human_can_hand_in_reflection_once(game):
+    eng = game._load()
+    eng.state.players[0].alive = False
+    game._save(eng)
+    assert A.post_decision(0, _key(game), {"reflection": "下次不去中心"})[0] == 200
+    assert os.path.exists(f"{game.HUMAN_DIR}/reflections/s0.json")
+    assert A.post_decision(0, _key(game), {"reflection": "再来一次"})[0] == 409
+
+
+def test_all_human_game_advances_by_itself(live):
+    live.cmd_init(_ns(human_seats="0,1,2,3,4,5"))
+    live.advance()
+    keys = live._load().humans
+    for s in range(6):
+        assert A.post_decision(s, keys[s], {"move": "center"})[0] == 200
+    eng = live._load()
+    assert eng.phase == "act"                     # the last submission resolved the move step

@@ -20,6 +20,7 @@ import json
 import os
 import pickle
 import random
+import secrets
 import sys
 
 from arena.setup import new_game
@@ -47,14 +48,28 @@ NAME_BY_ZONE = {Zone.N: "forest", Zone.E: "water", Zone.S: "stone", Zone.W: "cit
 
 
 def _save(eng):
-    with open(STATE, "wb") as f:
+    tmp = STATE + ".tmp"
+    with open(tmp, "wb") as f:
         pickle.dump(eng, f)
+    os.replace(tmp, STATE)             # atomic: the web server may be reading it right now
     _export(eng)                       # keep the spectator page (app/live/game.json) live
 
 
 def _load():
     with open(STATE, "rb") as f:
         return pickle.load(f)
+
+
+def _pick_humans(n, seats, count, rng):
+    """-> {seat: key}. `seats` like "2,4" wins over a random `count`."""
+    if seats:
+        chosen = sorted({int(s) for s in str(seats).split(",") if s.strip()})
+    else:
+        chosen = sorted(rng.sample(range(n), count)) if count else []
+    bad = [s for s in chosen if not 0 <= s < n]
+    if bad:
+        sys.exit(f"! 人类座位超出范围: {bad}")
+    return {s: secrets.token_urlsafe(8) for s in chosen}
 
 
 def cmd_init(args):
@@ -67,13 +82,19 @@ def cmd_init(args):
     eng.styles = {p.seat: st for p, st in zip(eng.state.players, styles)}
     guide = zone_guide(eng.state.decks)                      # counted from the fresh decks
     eng.briefs = {p.seat: _brief(eng, p.seat, guide, eng.styles[p.seat], table) for p in eng.state.players}
+    eng.humans = _pick_humans(n, getattr(args, "human_seats", None), getattr(args, "humans", 0) or 0, rng)
+    eng.phase = "start"
+    eng.game_over = False
     import shutil
-    for d in (PROMPT_DIR, DECISION_DIR):
+    for d in (PROMPT_DIR, DECISION_DIR, HUMAN_DIR):
         shutil.rmtree(d, ignore_errors=True)
     if os.path.exists(f"{APP_LIVE}/think.json"):
         os.remove(f"{APP_LIVE}/think.json")
     _save(eng)
     print(f"initialized {args.players}-player game (seed {args.seed}); identities dealt secretly.")
+    port = os.environ.get("ARENA_PORT", "8000")
+    for s, k in sorted(eng.humans.items()):
+        print(f"人类座位 s{s}: http://localhost:{port}/play.html?seat={s}&key={k}")
 
 
 def _zone(name):
@@ -179,11 +200,16 @@ def cmd_endround(args):
     eng.shrink_step()
     dead_seats = sorted(before - {p.seat for p in eng.alive_players()})
     dead = [eng._p(s).character.name for s in dead_seats]
-    _ask_reflections(eng, dead_seats)                 # one last call per fallen seat
+    humans = getattr(eng, "humans", {})
+    ask = [s for s in dead_seats if s not in humans]
+    _ask_reflections(eng, ask)                        # one last call per fallen AI seat
     eng.state.round_no += 1
     eng.state.first_seat = (eng.state.first_seat + 1) % len(eng.state.players)
-    _save(eng)
     w = eng.check_winner()
+    eng.game_over = w is not None
+    pending = bool(ask and getattr(eng, "pending_reflect", None))
+    eng.phase = "reflect" if pending else ("over" if eng.game_over else "start")
+    _save(eng)
     msg = f"round -> {eng.state.round_no}. "
     msg += f"eliminated: {dead}. " if dead else "no eliminations. "
     msg += f"alive: {[p.character.name for p in eng.alive_players()]}."
@@ -191,8 +217,8 @@ def cmd_endround(args):
         end = {-1: "draw", eng.LOVERS_WIN: "only the Lovers are left"}.get(w) or eng._p(w).character.name + " survives"
         msg += f"  *** GAME OVER: {end} ***"
     print(msg)
-    if dead_seats:
-        print(json.dumps({"reflect": dead_seats}))
+    if ask:
+        print(json.dumps({"reflect": ask}))
 
 
 def cmd_say(args):
@@ -353,6 +379,7 @@ def _export(eng):
 TYPE_ZH = {"weapon": "武器", "food": "食物", "armor": "护甲", "ammo": "碎片"}
 PROMPT_DIR = f"{PLAY_LIVE}/prompts"      # one private file per seat: s{seat}.txt
 DECISION_DIR = f"{PLAY_LIVE}/decisions"  # the seat's agent writes s{seat}.json here
+HUMAN_DIR = f"{PLAY_LIVE}/human"        # human seats' reflections (play/human.py, app/human_api.py)
 
 PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal")
 
@@ -712,20 +739,25 @@ def cmd_reflect(args):
 
 
 def cmd_plan(args):
-    """Decide who must be asked, and write each asked seat's private prompt to its own file."""
+    """Decide who must be asked, and write each asked AI seat's private prompt to its own file."""
     import shutil
     eng = _load()
     if getattr(eng, "pending_reflect", None):
         _absorb_reflections(eng)
-        _save(eng)
     auto, ask = _plan(eng, args.phase)
+    humans = getattr(eng, "humans", {})
     for d in (PROMPT_DIR, DECISION_DIR):
         shutil.rmtree(d, ignore_errors=True)
         os.makedirs(d, exist_ok=True)
     for seat in ask:
+        if seat in humans:
+            continue                                   # humans read /api/view instead
         with open(f"{PROMPT_DIR}/s{seat}.txt", "w", encoding="utf-8") as f:
             f.write(_prompt(eng, seat, args.phase))
-    print(json.dumps({"auto": {str(k): v for k, v in auto.items()}, "ask": ask}, ensure_ascii=False))
+    eng.phase = args.phase
+    _save(eng)
+    print(json.dumps({"auto": {str(k): v for k, v in auto.items()}, "ask": ask,
+                      "humans": [s for s in ask if s in humans]}, ensure_ascii=False))
 
 
 RULES_FILE = ".claude/agents/arena-player.md"
@@ -896,6 +928,8 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     pi = sub.add_parser("init"); pi.add_argument("--players", type=int, default=5); pi.add_argument("--seed", type=int, default=0)
+    pi.add_argument("--human-seats", dest="human_seats", default=None, help="e.g. 2,4")
+    pi.add_argument("--humans", type=int, default=0, help="number of random human seats")
     sub.add_parser("snapshot")
     pm = sub.add_parser("move"); pm.add_argument("mapping")
     sub.add_parser("detonate")

@@ -98,3 +98,27 @@ def test_play_game_reports_identity_winners():
     result = asyncio.run(eng.play_game())
     assert "identity_winners" in result
     assert all(pl.identity is not None for pl in eng.state.players)   # identities were dealt
+
+
+def test_surviving_lover_wins_even_if_partner_died():
+    a = _p(0, "A", 10, Zone.N, "Lovers")
+    b = _p(1, "B", 10, Zone.N, "Lovers")
+    c = _p(2, "C", 10, Zone.N, "Warrior")
+    eng = _engine([a, b, c])
+    b.alive = False
+    c.alive = False
+    w = identities.check_winners(eng)
+    assert "Lovers" in w.get(0, []) and "Lovers" in w.get(1, [])
+
+
+def test_social_butterfly_guesses_loose_names_and_lovers_count_once():
+    sb = _p(0, "S", 10, Zone.N, "Social Butterfly")
+    l1 = _p(1, "L1", 10, Zone.N, "Lovers")
+    l2 = _p(2, "L2", 10, Zone.N, "Lovers")
+    wa = _p(3, "W", 10, Zone.N, "Warrior")
+    ve = _p(4, "V", 10, Zone.N, "Vendetta")
+    eng = _engine([sb, l1, l2, wa, ve])
+    both_lovers = {0: [(1, "Lover"), (2, "lovers"), (3, "Warrior")]}      # pair = 1, + Warrior = 2
+    assert "Social Butterfly" not in identities.check_winners(eng, both_lovers).get(0, [])
+    three = {0: [(1, "Lover"), (3, " warrior "), (4, "Vendetta")]}
+    assert "Social Butterfly" in identities.check_winners(eng, three).get(0, [])

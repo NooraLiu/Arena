@@ -43,6 +43,12 @@ def _seats_with(engine, identity: str) -> List[int]:
     return [p.seat for p in engine.state.players if p.identity == identity]
 
 
+def _same_identity(actual, guess):
+    """Declared guesses are free text: 'Lover' / 'lovers' / ' Lovers ' all mean Lovers."""
+    norm = lambda x: str(x or "").strip().lower().rstrip("s")
+    return actual is not None and norm(actual) == norm(guess)
+
+
 def check_winners(engine, declarations: Optional[Dict[int, List[str]]] = None) -> Dict[int, List[str]]:
     """Return {seat: [tracks won]} for every player. Tracks include identity
     names and 'Survivor' for the last-alive arena winner."""
@@ -96,14 +102,16 @@ def check_winners(engine, declarations: Optional[Dict[int, List[str]]] = None) -
                     wins[s].append("Bodyguard")
         elif ii == "Lovers":
             partner = next((q.seat for q in st.players if q.identity == "Lovers" and q.seat != s), None)
-            if partner is not None and partner in alive:
+            if partner is not None and (s in alive or partner in alive):   # either survives -> both win
                 wins[s].append("Lovers")
         elif ii == "Sour Lemon":
             if any(ident.get(v) == "Lovers" and engine.killer_of.get(v) == s for v in engine.killer_of):
                 wins[s].append("Sour Lemon")
         elif ii == "Social Butterfly":
             guesses = declarations.get(s, [])
-            correct = sum(1 for (gs, gid) in guesses if ident.get(gs) == gid)
+            hits = [ident.get(gs) for (gs, gid) in guesses if _same_identity(ident.get(gs), gid)]
+            # the Lovers pair counts as one identity, however many of them were named
+            correct = len([h for h in hits if h != "Lovers"]) + (1 if "Lovers" in hits else 0)
             if correct >= 3:
                 wins[s].append("Social Butterfly")
 

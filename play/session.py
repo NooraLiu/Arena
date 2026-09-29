@@ -765,14 +765,19 @@ def cmd_movephase(args):
         print("💥 炸弹: " + "; ".join(hits))
 
 
+def _seat(x):
+    """'3', 's3', ' S3 ' -> 3 (agents write seats both ways)."""
+    return int(str(x).strip().lstrip("sS"))
+
+
 def _parse_extra(eng, seat, x):
     x = str(x).strip()
     k, _, rest = x.partition(":")
     if k == "steal":
-        return StealCard(int(rest))
+        return StealCard(_seat(rest))
     if k == "trade":
         to, _, cid = rest.partition(":")
-        return TradeCard(int(to), cid)
+        return TradeCard(_seat(to), cid)
     if k == "craft":
         return CraftWeapon()
     if k == "shield":
@@ -780,10 +785,10 @@ def _parse_extra(eng, seat, x):
     if k == "poison":
         return PoisonFood()
     if k == "peek":
-        return PeekIdentity(int(rest.split("(")[0]))
+        return PeekIdentity(_seat(rest.split("(")[0]))
     if k == "feed":
         to, _, cid = rest.partition(":")
-        return FeedFood(int(to), cid or None)
+        return FeedFood(_seat(to), cid or None)
     if k == "bomb":
         return PlantBomb(_zone(rest))
     return None
@@ -808,7 +813,7 @@ def cmd_actphase(args):
         eng._maybe_heal(p)
         atk = build_observation(eng, p.seat).attackable_seats
         act = str(d.get("action", "draw"))
-        tgt = int(act.split(":")[1]) if act.startswith("attack:") else None
+        tgt = _seat(act.split(":")[1]) if act.startswith("attack:") else None
         if p.zone == Zone.CENTER and atk:                  # forced fight + center draw
             eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)))
             eng.center_draw(p)
@@ -820,7 +825,11 @@ def cmd_actphase(args):
             if str(x).startswith("declare:"):
                 _apply_declare(eng, p.seat, str(x)[len("declare:"):])
                 continue
-            a = _parse_extra(eng, p.seat, x)
+            try:
+                a = _parse_extra(eng, p.seat, x)
+            except (ValueError, KeyError):
+                print(f"! s{p.seat} 附加行动写法看不懂,跳过: {x}")
+                a = None
             if a is not None:
                 eng._apply_additional(p, a)
     _store_planned(eng, decisions, auto)

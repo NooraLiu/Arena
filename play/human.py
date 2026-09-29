@@ -1,0 +1,239 @@
+"""What one human seat may see, and checking what it submits.
+
+Pure functions over an engine: nothing here writes files. The rules for what is legal come from
+play/session.py (the same helpers that build the agents' prompts), so a human and an agent in
+the same seat are offered exactly the same choices.
+"""
+import json
+import os
+
+from arena.engine import build_observation
+from arena.models import Zone, CardType
+from play import session as S
+
+MAX_SAY = 2
+MAX_TEXT = 200
+MAX_MEMO = 400
+
+
+def _names(zones):
+    return [S.NAME_BY_ZONE[z] for z in sorted(zones, key=lambda z: z.value)]
+
+
+def _card(c):
+    return {"id": c.id, "name": c.name, "type": c.type.value, "value": c.value, "label": S._card_str(c)}
+
+
+def _asked(eng, seat, phase):
+    return phase in ("move", "act") and seat in S._plan(eng, phase)[1]
+
+
+def _has_decision(seat):
+    return os.path.exists(f"{S.DECISION_DIR}/s{seat}.json")
+
+
+def _reflection_text(eng, seat):
+    text = getattr(eng, "reflections", {}).get(seat)
+    if text:
+        return text
+    fp = f"{S.HUMAN_DIR}/reflections/s{seat}.json"
+    if os.path.exists(fp):
+        try:
+            return json.load(open(fp, encoding="utf-8")).get("reflection")
+        except Exception:
+            return None
+    return None
+
+
+def _status(eng, seat):
+    ph = getattr(eng, "phase", "start")
+    if ph == "over":
+        return "over"
+    if not eng._p(seat).alive:
+        return "dead"
+    if _asked(eng, seat, ph):
+        return "submitted" if _has_decision(seat) else "your_turn"
+    return "waiting"
+
+
+def _extra_options(eng, p):
+    mates = [q.seat for q in eng.alive_players() if q.seat != p.seat and q.zone == p.zone]
+    out = []
+    for x in S._extras(eng, p):
+        kind = x.split(":")[0].split("(")[0]
+        o = {"kind": kind}
+        if kind == "trade":
+            cards = [_card(c) for c in p.hand]
+            if p.equipped_weapon:
+                cards.append({**_card(p.equipped_weapon), "label": "已装备 " + S._card_str(p.equipped_weapon)})
+            o.update(targets=mates, cards=cards)
+        elif kind == "steal":
+            o["targets"] = [s for s in mates if eng._p(s).hand]
+        elif kind == "peek":
+            o["targets"] = mates
+        elif kind == "feed":
+            o.update(targets=mates, cards=[_card(c) for c in p.hand if c.type == CardType.FOOD])
+        elif kind == "bomb":
+            o["zones"] = _names(eng.state.open_zones)
+        out.append(o)
+    return out
+
+
+def _options(eng, seat, phase):
+    p = eng._p(seat)
+    if phase == "move":
+        return {"kind": "move", "moves": _names(S._legal_zones(eng, p))}
+    atk = build_observation(eng, seat).attackable_seats
+    return {"kind": "act", "attack": list(atk),
+            "forced_attack": p.zone == Zone.CENTER and bool(atk),
+            "extras": _extra_options(eng, p),
+            "moves": _names(S._next_legal(eng, p)),
+            "say_to": [q.seat for q in eng.alive_players() if q.seat != seat],
+            "identities": sorted({q.identity for q in eng.state.players if q.identity})}
+
+
+def human_view(eng, seat):
+    st, p = eng.state, eng._p(seat)
+    ph = getattr(eng, "phase", "start")
+    status = _status(eng, seat)
+    blind = ph == "move" and st.round_no == 1
+    players = []
+    for q in st.players:
+        eq = q.equipped_weapon
+        players.append({"seat": q.seat, "name": q.character.name, "hp": q.hp, "hp_max": q.character.hp_max,
+                        "alive": q.alive,
+                        "zone": None if (blind and q.seat != seat) else S.NAME_BY_ZONE[q.zone],
+                        "weapon": eq.name if eq else None, "weapon_value": eq.value if eq else 0})
+    lover = None
+    if p.identity == "Lovers":
+        lover = next((q.seat for q in st.players if q.identity == "Lovers" and q.seat != seat), None)
+    known = getattr(eng, "known_identities", {}).get(seat) or {}
+    me = {"name": p.character.name, "hp": p.hp, "hp_max": p.character.hp_max,
+          "base_attack": p.character.base_attack, "attack": S._atk(p),
+          "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": S.NAME_BY_ZONE[p.zone],
+          "hand": [_card(c) for c in p.hand],
+          "equipped": _card(p.equipped_weapon) if p.equipped_weapon else None,
+          "identity": p.identity, "win_condition": S.WIN_COND.get(p.identity, ""),
+          "progress": S._progress(eng, seat), "lover": lover,
+          "known": {str(k): v for k, v in known.items()},
+          "declared": [[s, i] for s, i in eng.declarations.get(seat, [])],
+          "memo": S._memos(eng).get(seat, "")}
+    messages = [{"round": m.round_no, "from": m.sender, "to": m.to, "text": m.text}
+                for m in eng.visible_messages(seat)][-40:]
+    events = [line for line in (S._event_line(e) for e in eng.log.events) if line][-30:]
+    view = {"seat": seat, "round": st.round_no, "phase": ph, "status": status,
+            "open_zones": _names(st.open_zones),
+            "deck_left": {S.NAME_BY_ZONE[z]: len(st.decks.get(z, [])) for z in st.open_zones},
+            "feast_active": st.feast_active, "feast_next": st.feast_next,
+            "frozen": _names(st.frozen_zones),
+            "players": players, "me": me, "messages": messages, "events": events,
+            "options": _options(eng, seat, ph) if status in ("your_turn", "submitted") else None,
+            "brief": getattr(eng, "briefs", {}).get(seat, ""),
+            "reflection": None, "result": None}
+    if status == "dead":
+        text = _reflection_text(eng, seat)
+        view["reflection"] = {"open": not text, "text": text}
+    if status == "over":
+        wins = eng.identity_winners()
+        view["result"] = {"identities": {str(q.seat): q.identity for q in st.players},
+                          "winners": {str(s): t for s, t in wins.items() if t}}
+        text = _reflection_text(eng, seat)
+        view["reflection"] = {"open": not p.alive and not text, "text": text}
+    return view
+
+
+def _check_say(say, opts, errs):
+    if not isinstance(say, list) or len(say) > MAX_SAY:
+        errs.append(f"最多 {MAX_SAY} 条喊话")
+        return
+    for m in say:
+        if not isinstance(m, dict):
+            errs.append("喊话格式不对")
+            continue
+        to = m.get("to", "all")
+        if to not in ("all", None):
+            try:
+                ok = S._seat(to) in opts["say_to"]
+            except ValueError:
+                ok = False
+            if not ok:
+                errs.append(f"不能私聊 {to}")
+        text = str(m.get("text") or "").strip()
+        if not text or len(text) > MAX_TEXT:
+            errs.append(f"喊话要有内容且不超过 {MAX_TEXT} 字")
+
+
+def _check_extra(eng, seat, x, opts, errs):
+    kind, _, rest = str(x).partition(":")
+    if kind == "declare":
+        for pair in [s for s in rest.split(",") if s.strip()]:
+            s, _, ident = pair.partition("=")
+            try:
+                target = S._seat(s)
+            except ValueError:
+                errs.append(f"声明写法不对: {pair}")
+                continue
+            if target == seat or not 0 <= target < len(eng.state.players) or ident.strip() not in opts["identities"]:
+                errs.append(f"声明写法不对: {pair}")
+        return
+    o = next((o for o in opts["extras"] if o["kind"] == kind), None)
+    if o is None:
+        errs.append(f"现在不能用 {kind}")
+        return
+    try:
+        if kind in ("trade", "feed"):
+            to, _, cid = rest.partition(":")
+            if S._seat(to) not in o["targets"] or cid not in {c["id"] for c in o["cards"]}:
+                errs.append(f"{kind} 的对象或牌不对: {rest}")
+        elif kind in ("steal", "peek"):
+            if S._seat(rest.split("(")[0]) not in o["targets"]:
+                errs.append(f"{kind} 的对象不对: {rest}")
+        elif kind == "bomb":
+            if rest.strip() not in o["zones"]:
+                errs.append(f"炸弹的区不对: {rest}")
+    except ValueError:
+        errs.append(f"{kind} 写法不对: {rest}")
+
+
+def validate_decision(eng, seat, phase, d):
+    errs = []
+    if not isinstance(d, dict):
+        return ["决策必须是一个 JSON 对象"]
+    if phase == "reflect":
+        text = str(d.get("reflection") or "").strip()
+        if not text:
+            errs.append("感悟不能为空")
+        elif len(text) > 2000:
+            errs.append("感悟太长了(最多 2000 字)")
+        return errs
+    opts = _options(eng, seat, phase)
+    if d.get("move") not in opts["moves"]:
+        errs.append(f"去不了 {d.get('move')},可去: {', '.join(opts['moves'])}")
+    memo = d.get("memo", "")
+    if not isinstance(memo, str) or len(memo) > MAX_MEMO:
+        errs.append(f"备忘最多 {MAX_MEMO} 字")
+    if phase == "act":
+        _check_say(d.get("say") or [], opts, errs)
+        act = str(d.get("action", "draw"))
+        if act == "draw":
+            if opts["forced_attack"]:
+                errs.append("在中心有别人时必须攻击")
+        elif act.startswith("attack:"):
+            try:
+                ok = S._seat(act.split(":", 1)[1]) in opts["attack"]
+            except ValueError:
+                ok = False
+            if not ok:
+                errs.append(f"不能攻击 {act.split(':', 1)[1]}(可攻击: {opts['attack'] or '无'})")
+        else:
+            errs.append("主行动只能是 draw 或 attack:座位")
+        extra = d.get("extra") or []
+        if not isinstance(extra, list):
+            errs.append("附加行动格式不对")
+        else:
+            for x in extra:
+                _check_extra(eng, seat, x, opts, errs)
+    else:
+        say_opts = {"say_to": [q.seat for q in eng.alive_players() if q.seat != seat]}
+        _check_say(d.get("say") or [], say_opts, errs)
+    return errs

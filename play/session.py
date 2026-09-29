@@ -548,6 +548,29 @@ def _progress(eng, seat):
     return "【身份进度】" + ";".join(parts)
 
 
+def _event_line(e):
+    """One public event as short text for prompts and the player page (None = not shown)."""
+    pl = e.payload or {}
+    r = f"r{e.round_no}"
+    if e.type == "attack":
+        return f"{r} s{e.actor}→s{pl['target']} 伤{pl['damage']}"
+    if e.type == "eliminated":
+        return f"{r} ☠ s{e.actor} 淘汰"
+    if e.type == "random_event":
+        return f"{r} ⚡{pl['name']}@{pl['zone']} 命中{pl['hits']}"
+    if e.type == "zone_closed":
+        return f"{r} 关闭 {pl['zone']}"
+    if e.type == "bomb":
+        return f"{r} 💥{pl['zone']} 炸到 s{pl['hit']}"
+    if e.type == "feed":
+        return f"{r} s{e.actor} 喂 s{pl['to']} 吃东西(→{pl['hp']}血)"
+    if e.type == "feast_heal":
+        return f"{r} s{e.actor} 盛宴回血(→{pl['hp']}血)"
+    if e.type in PUBLIC_EV:
+        return f"{r} s{e.actor} {e.type}"
+    return None
+
+
 def _prompt(eng, seat, phase):
     st, p = eng.state, eng._p(seat)
     r = st.round_no
@@ -594,23 +617,7 @@ def _prompt(eng, seat, phase):
     if recent:
         L.append("【近期公开事件】")
         for e in recent[-15:]:
-            pl = e.payload or {}
-            if e.type == "attack":
-                L.append(f"  r{e.round_no} s{e.actor}→s{pl['target']} 伤{pl['damage']}")
-            elif e.type == "eliminated":
-                L.append(f"  r{e.round_no} ☠ s{e.actor} 淘汰")
-            elif e.type == "random_event":
-                L.append(f"  r{e.round_no} ⚡{pl['name']}@{pl['zone']} 命中{pl['hits']}")
-            elif e.type == "zone_closed":
-                L.append(f"  r{e.round_no} 关闭 {pl['zone']}")
-            elif e.type == "bomb":
-                L.append(f"  r{e.round_no} 💥{pl['zone']} 炸到 s{pl['hit']}")
-            elif e.type == "feed":
-                L.append(f"  r{e.round_no} s{e.actor} 喂 s{pl['to']} 吃东西(→{pl['hp']}血)")
-            elif e.type == "feast_heal":
-                L.append(f"  r{e.round_no} s{e.actor} 盛宴回血(→{pl['hp']}血)")
-            else:
-                L.append(f"  r{e.round_no} s{e.actor} {e.type}")
+            L.append("  " + _event_line(e))
     msgs = [m for m in eng.visible_messages(seat) if m.round_no >= r - 1]
     if msgs:
         L.append("【近期消息】")

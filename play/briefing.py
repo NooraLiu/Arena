@@ -68,20 +68,31 @@ def _fill(text, ctx):
     return re.sub(r"\{([^{}]+)\}", lambda m: str(ctx.get(m.group(1), m.group(0))), text)
 
 
-def brief(eng, seat, guide, style=None, table=None):
-    t = table or load_table()
+def context(eng, seat, guide=""):
+    """Placeholder values for one seat's text ({我} {恋人} {复仇对象} ...)."""
     st = eng.state
     n = len(st.players)
     p = st.players[seat]
     left, right = st.players[(seat - 1) % n], st.players[(seat + 1) % n]
     partner = next((q for q in st.players if q.identity == p.identity == "Lovers" and q.seat != seat), None)
-    ctx = {
+    return {
         "我": _tag(p), "血量": p.character.hp_max, "攻击": p.character.base_attack,
         "左邻": _tag(left), "右邻": _tag(right), "人数": n,
         "身份池": " / ".join(sorted({q.identity for q in st.players if q.identity})),
         "各区牌堆": guide, "恋人": _tag(partner) if partner else "(无)",
         "复仇对象": _tag(right), "交换目标数": max(1, n - 2),
     }
+
+
+def fill_for(eng, seat, text):
+    """A table text as one seat should read it: placeholders filled, markdown bold removed."""
+    return _fill(text, context(eng, seat)).replace("**", "")
+
+
+def brief(eng, seat, guide, style=None, table=None):
+    t = table or load_table()
+    p = eng.state.players[seat]
+    ctx = context(eng, seat, guide)
     ch = t["角色"].get(p.character.name, {})
     ident = t["身份"].get(p.identity, {})
     L = ["=== 规则(所有人相同) ===", t["共享规则"]["规则"]["正文"], "",

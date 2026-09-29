@@ -114,3 +114,10 @@ def test_validate_reflection(live):
     eng = _started(live)
     assert H.validate_decision(eng, 0, "reflect", {"reflection": "好玩"}) == []
     assert H.validate_decision(eng, 0, "reflect", {"reflection": "  "})
+
+
+def test_win_condition_has_no_template_placeholders_or_markdown(live):
+    eng = _started(live)
+    for p in eng.state.players:
+        text = H.human_view(eng, p.seat)["me"]["win_condition"]
+        assert "{" not in text and "**" not in text, text

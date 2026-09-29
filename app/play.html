@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena 玩家席</title>
+<style>
+  :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
+        --hit:#ff6b6b;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,"PingFang SC",system-ui,sans-serif}
+  header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  h1{font-size:17px;margin:0 8px 0 0}
+  .pill{padding:3px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px}
+  .pill.turn{background:#2b5a33;border-color:#3f8a4b;color:#dfffe4;font-weight:600}
+  main{max-width:1080px;margin:0 auto;padding:14px 16px}
+  .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  .panel h3{margin:0 0 8px;font-size:14px;color:var(--dim)}
+  .map{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(76px,auto));gap:8px}
+  .zone{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px}
+  .zone.closed{opacity:.3} .zone.here{border-color:var(--ok)}
+  .zone .zt{font-size:12px;color:var(--dim);margin-bottom:4px}
+  .zc{grid-column:2;grid-row:2}.zn{grid-column:2;grid-row:1}.ze{grid-column:3;grid-row:2}.zs{grid-column:2;grid-row:3}.zw{grid-column:1;grid-row:2}
+  .tok{display:inline-block;margin:2px;padding:2px 7px;border-radius:8px;border:1px solid var(--line);background:#0e1226;font-size:12.5px}
+  .tok.me{border-color:var(--ok)} .tok.dead{opacity:.4;text-decoration:line-through}
+  .row{margin:3px 0} .k{color:var(--dim);font-size:12px}
+  .card{display:inline-block;margin:2px;padding:2px 7px;border-radius:6px;background:var(--card2);border:1px solid var(--line);font-size:12.5px}
+  .msg{padding:3px 0;border-bottom:1px solid #22273f;font-size:13px} .msg.dm{color:var(--dm)}
+  .scroll{max-height:260px;overflow:auto}
+  select,input,textarea,button{font:inherit;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+  textarea{width:100%;min-height:60px}
+  button{cursor:pointer;background:#2b3566;border-color:#3a469a;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .field{margin:8px 0} .field label{display:block;color:var(--dim);font-size:12.5px;margin-bottom:3px}
+  .extra{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0}
+  .err{color:var(--hit);white-space:pre-wrap;margin:6px 0}
+  .ok{color:var(--ok)}
+  details pre{white-space:pre-wrap;font:12.5px/1.5 inherit;color:#cdd3f0;max-height:420px;overflow:auto}
+  .big{font-size:15px;color:var(--win)}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚔️ Arena 玩家席</h1>
+  <span id="who" class="pill">连接中…</span>
+  <span id="round" class="pill"></span>
+  <span id="status" class="pill"></span>
+  <span id="zones" style="color:var(--dim);font-size:13px"></span>
+</header>
+<main>
+  <div id="fatal" class="err"></div>
+  <div class="grid">
+    <div>
+      <div class="panel"><h3>地图</h3><div class="map" id="map"></div></div>
+      <div class="panel" id="formPanel" style="display:none"><h3 id="formTitle">你的决定</h3><div id="form"></div></div>
+      <div class="panel" id="reflectPanel" style="display:none"><h3>出局感悟</h3><div id="reflect"></div></div>
+      <div class="panel" id="resultPanel" style="display:none"><h3>对局结果</h3><div id="result"></div></div>
+    </div>
+    <div>
+      <div class="panel"><h3>我</h3><div id="me"></div></div>
+      <div class="panel"><h3>消息</h3><div id="msgs" class="scroll"></div></div>
+      <div class="panel"><h3>公开事件</h3><div id="events" class="scroll"></div></div>
+      <div class="panel"><details><summary>规则与我的开局简报</summary><pre id="brief"></pre></details></div>
+    </div>
+  </div>
+</main>
+<script>
+const Q = new URLSearchParams(location.search);
+const SEAT = Q.get("seat"), KEY = Q.get("key");
+const API = (p) => `${p}?seat=${encodeURIComponent(SEAT)}&key=${encodeURIComponent(KEY)}`;
+const ZN = {center:"中心",forest:"林",water:"水",stone:"石",city:"城"};
+const ZC = {center:"zc",forest:"zn",water:"ze",stone:"zs",city:"zw"};
+const STATUS = {your_turn:"轮到你了",submitted:"已提交,等待其他人",waiting:"等待其他人",dead:"你已出局",over:"游戏结束"};
+let V = null, SIG = "", EDITING = false;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const nm = (s) => { const p = V.players.find(p => p.seat === +s); return p ? `s${p.seat} ${p.name}` : `s${s}`; };
+
+async function poll() {
+  try {
+    const r = await fetch(API("/api/view"), {cache: "no-store"});
+    const d = await r.json();
+    if (!r.ok) { $("fatal").textContent = d.error || "读取失败"; return; }
+    $("fatal").textContent = "";
+    const sig = JSON.stringify(d);
+    if (sig === SIG) return;
+    const stepChanged = !V || V.round !== d.round || V.phase !== d.phase || V.status !== d.status;
+    SIG = sig; V = d;
+    render(stepChanged);
+  } catch (e) { $("fatal").textContent = "连不上服务器,重试中…"; }
+}
+
+function render(stepChanged) {
+  const me = V.me;
+  $("who").textContent = `s${V.seat} ${me.name}`;
+  $("round").textContent = `第 ${V.round} 回合 · ${V.phase === "move" ? "移动" : V.phase === "act" ? "行动" : V.phase}`;
+  $("status").textContent = STATUS[V.status] || V.status;
+  $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
+  const extra = [V.feast_active ? "盛宴生效中" : "", V.feast_next ? "下回合盛宴" : "", V.frozen.length ? "沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean);
+  $("zones").textContent = "剩余牌:" + Object.entries(V.deck_left).map(([z, n]) => `${ZN[z]} ${n}`).join(" · ") + (extra.length ? " · " + extra.join(" · ") : "");
+  renderMap(); renderMe(); renderMsgs();
+  $("brief").textContent = V.brief;
+  if (stepChanged || !EDITING) renderForm();
+  renderReflect(); renderResult();
+}
+
+function renderMap() {
+  $("map").innerHTML = Object.keys(ZN).map(z => {
+    const here = V.players.filter(p => p.zone === z);
+    const closed = !V.open_zones.includes(z);
+    const toks = here.map(p => `<span class="tok ${p.seat === V.seat ? "me" : ""} ${p.alive ? "" : "dead"}">s${p.seat} ${esc(p.name)} ${p.hp}/${p.hp_max}${p.weapon ? " · " + esc(p.weapon) + "+" + p.weapon_value : ""}</span>`).join("");
+    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""}"><div class="zt">${ZN[z]}${closed ? "(已关闭)" : ""}</div>${toks}</div>`;
+  }).join("");
+  const unknown = V.players.filter(p => p.zone === null);
+  if (unknown.length) $("map").insertAdjacentHTML("beforeend", `<div class="k" style="grid-column:1/4">位置未知(第一回合同时暗选):${unknown.map(p => "s" + p.seat + " " + esc(p.name)).join("、")}</div>`);
+}
+
+function renderMe() {
+  const m = V.me;
+  const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
+  $("me").innerHTML = `
+    <div class="row">${m.hp}/${m.hp_max} 血 · 攻击 ${m.base_attack}+武器 = ${m.attack} · 在 ${ZN[m.zone]}</div>
+    <div class="row"><span class="k">技能</span> ${esc(m.skill)}</div>
+    <div class="row"><span class="k">装备</span> ${m.equipped ? `<span class="card">${esc(m.equipped.label)}</span>` : "无"}</div>
+    <div class="row"><span class="k">手牌</span> ${m.hand.map(c => `<span class="card">${esc(c.label)}</span>`).join("") || "无"}</div>
+    <div class="row big">秘密身份:${esc(m.identity)}</div>
+    <div class="row"><span class="k">胜利条件</span> ${esc(m.win_condition)}</div>
+    <div class="row">${esc(m.progress)}</div>
+    ${m.lover !== null ? `<div class="row">你的恋人:${nm(m.lover)}</div>` : ""}
+    ${known ? `<div class="row">你已确认:${known}</div>` : ""}
+    ${m.declared.length ? `<div class="row">你已声明:${m.declared.map(([s, i]) => nm(s) + "=" + esc(i)).join(",")}</div>` : ""}
+    ${m.memo ? `<div class="row"><span class="k">你的备忘</span> ${esc(m.memo)}</div>` : ""}`;
+}
+
+function renderMsgs() {
+  $("msgs").innerHTML = V.messages.slice().reverse().map(x => {
+    const tag = x.to === null ? "公开" : (x.to === V.seat ? "私聊给你" : `你私聊 ${nm(x.to)}`);
+    return `<div class="msg ${x.to === null ? "" : "dm"}">r${x.round} <b>${nm(x.from)}</b> [${tag}]:${esc(x.text)}</div>`;
+  }).join("") || `<div class="k">还没有消息</div>`;
+  $("events").innerHTML = V.events.slice().reverse().map(e => `<div class="msg">${esc(e)}</div>`).join("") || `<div class="k">还没有事件</div>`;
+}
+
+function opt(v, label, sel) { return `<option value="${esc(v)}" ${sel ? "selected" : ""}>${esc(label)}</option>`; }
+
+function renderForm() {
+  EDITING = false;
+  const o = V.options;
+  if (!o) { $("formPanel").style.display = "none"; return; }
+  $("formPanel").style.display = "";
+  $("formTitle").textContent = V.status === "submitted" ? "已提交(结算前可以修改)" : "你的决定";
+  let h = "";
+  if (o.kind === "act") {
+    h += `<div class="field"><label>主行动${o.forced_attack ? "(你在中心,必须攻击)" : ""}</label><select id="f_action">
+      ${o.forced_attack ? "" : opt("draw", "抽一张本区牌")}
+      ${o.attack.map(s => opt("attack:" + s, "攻击 " + nm(s))).join("")}</select></div>`;
+    h += `<div class="field"><label>附加行动(可选)</label>${o.extras.map(extraRow).join("") || `<span class="k">现在没有可用的附加行动</span>`}
+      <div class="extra"><label><input type="checkbox" data-x="declare"> 声明身份</label>
+      ${V.players.filter(p => p.seat !== V.seat).map(p => `<span>${nm(p.seat)} <select data-decl="${p.seat}">${opt("", "—")}${o.identities.map(i => opt(i, i)).join("")}</select></span>`).join("")}</div></div>`;
+  }
+  h += `<div class="field"><label>${o.kind === "act" ? "下回合去哪" : "这回合去哪"}</label><select id="f_move">${o.moves.map(z => opt(z, ZN[z])).join("")}</select></div>`;
+  const to = (o.say_to || V.players.filter(p => p.alive && p.seat !== V.seat).map(p => p.seat));
+  for (const i of [0, 1]) {
+    h += `<div class="field"><label>喊话 ${i + 1}(可空)</label><div class="extra"><select id="f_to${i}">${opt("all", "公开")}${to.map(s => opt(s, "私聊 " + nm(s))).join("")}</select>
+      <input id="f_say${i}" maxlength="200" style="flex:1;min-width:200px"></div></div>`;
+  }
+  h += `<div class="field"><label>备忘(只有你自己下回合能看到)</label><textarea id="f_memo" maxlength="400">${esc(V.me.memo)}</textarea></div>`;
+  h += `<div id="f_err" class="err"></div><button id="f_go">${V.status === "submitted" ? "修改提交" : "提交"}</button> <span id="f_ok" class="ok"></span>`;
+  $("form").innerHTML = h;
+  $("form").oninput = () => { EDITING = true; };
+  $("f_go").onclick = submit;
+}
+
+function extraRow(x) {
+  const k = x.kind;
+  const label = {trade:"交换(给同区玩家一张牌)",steal:"偷牌(掷 d4 出 4 成功)",craft:"合成武器",poison:"下毒(2 食物→毒食物)",peek:"偷看身份(每局一次)",feed:"喂食",bomb:"做炸弹"}[k] || k;
+  let h = `<div class="extra"><label><input type="checkbox" data-x="${k}"> ${label}</label>`;
+  if (x.targets) h += `<select data-t="${k}">${x.targets.map(s => opt(s, nm(s))).join("")}</select>`;
+  if (x.cards) h += `<select data-c="${k}">${x.cards.map(c => opt(c.id, c.label)).join("")}</select>`;
+  if (x.zones) h += `<select data-z="${k}">${x.zones.map(z => opt(z, ZN[z])).join("")}</select>`;
+  return h + `</div>`;
+}
+
+function collect() {
+  const o = V.options, d = {move: $("f_move").value, memo: $("f_memo").value.trim(), say: []};
+  for (const i of [0, 1]) {
+    const t = $("f_say" + i).value.trim();
+    if (t) { const to = $("f_to" + i).value; d.say.push({to: to === "all" ? "all" : +to, text: t}); }
+  }
+  if (o.kind === "act") {
+    d.action = $("f_action").value;
+    d.extra = [];
+    document.querySelectorAll("[data-x]").forEach(cb => {
+      if (!cb.checked) return;
+      const k = cb.dataset.x;
+      if (k === "declare") {
+        const pairs = [...document.querySelectorAll("[data-decl]")].filter(s => s.value).map(s => `s${s.dataset.decl}=${s.value}`);
+        if (pairs.length) d.extra.push("declare:" + pairs.join(","));
+        return;
+      }
+      const t = document.querySelector(`[data-t="${k}"]`), c = document.querySelector(`[data-c="${k}"]`), z = document.querySelector(`[data-z="${k}"]`);
+      d.extra.push([k, t && t.value, c && c.value, z && z.value].filter(v => v !== null && v !== undefined && v !== "").join(":"));
+    });
+  }
+  return d;
+}
+
+async function post(body) {
+  const r = await fetch(API("/api/decision"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  return [r.status, await r.json()];
+}
+
+async function submit() {
+  $("f_go").disabled = true; $("f_err").textContent = ""; $("f_ok").textContent = "";
+  const [code, r] = await post(collect());
+  $("f_go").disabled = false;
+  if (code === 200) { EDITING = false; $("f_ok").textContent = "已提交 ✓"; SIG = ""; poll(); }
+  else $("f_err").textContent = (r.errors || [r.error]).join("\n");
+  if (code === 409) { SIG = ""; poll(); }
+}
+
+function renderReflect() {
+  const r = V.reflection;
+  if (!r) { $("reflectPanel").style.display = "none"; return; }
+  $("reflectPanel").style.display = "";
+  if (!r.open) { $("reflect").innerHTML = `<div class="row">${esc(r.text || "")}</div>`; return; }
+  if ($("r_text")) return;
+  $("reflect").innerHTML = `<div class="k">写写你的计划、哪里失误了、对游戏节奏的看法。之后你只能看公开信息,等游戏结束。</div>
+    <textarea id="r_text" maxlength="2000"></textarea><div id="r_err" class="err"></div><button id="r_go">提交感悟</button>`;
+  $("r_go").onclick = async () => {
+    const [code, res] = await post({reflection: $("r_text").value});
+    if (code === 200) { SIG = ""; $("reflect").innerHTML = ""; poll(); } else $("r_err").textContent = (res.errors || [res.error]).join("\n");
+  };
+}
+
+function renderResult() {
+  const r = V.result;
+  if (!r) { $("resultPanel").style.display = "none"; return; }
+  $("resultPanel").style.display = "";
+  $("result").innerHTML = V.players.map(p => {
+    const w = r.winners[p.seat];
+    return `<div class="row">${nm(p.seat)} · ${esc(r.identities[p.seat])} · ${p.alive ? "存活" : "出局"}${w ? ` · <span class="big">赢得 ${esc(w.join("、"))}</span>` : ""}</div>`;
+  }).join("") + `<div class="row"><a href="/" style="color:var(--zone)">打开观战页看完整回放和所有人的思考 →</a></div>`;
+}
+
+if (!SEAT || !KEY) $("fatal").textContent = "链接缺少 seat 或 key 参数";
+else { poll(); setInterval(poll, 2000); }
+</script>
+</body>
+</html>

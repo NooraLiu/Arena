@@ -10,6 +10,7 @@ import os
 from arena.engine import build_observation
 from arena.models import Zone, CardType
 from play import session as S
+from play.briefing import fill_for
 
 MAX_SAY = 2
 MAX_TEXT = 200
@@ -113,7 +114,7 @@ def human_view(eng, seat):
           "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": S.NAME_BY_ZONE[p.zone],
           "hand": [_card(c) for c in p.hand],
           "equipped": _card(p.equipped_weapon) if p.equipped_weapon else None,
-          "identity": p.identity, "win_condition": S.WIN_COND.get(p.identity, ""),
+          "identity": p.identity, "win_condition": fill_for(eng, seat, S.WIN_COND.get(p.identity, "")),
           "progress": S._progress(eng, seat), "lover": lover,
           "known": {str(k): v for k, v in known.items()},
           "declared": [[s, i] for s, i in eng.declarations.get(seat, [])],

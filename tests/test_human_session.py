@@ -58,3 +58,62 @@ def test_endround_never_asks_a_human_for_a_reflection(live):
     assert set(eng.pending_reflect) == {1}
     assert eng.phase == "reflect"
     assert not os.path.exists(f"{live.PROMPT_DIR}/s0.txt")
+
+
+from arena.engine import build_observation
+from arena.models import Zone
+
+
+def _answer(live, seat, phase):
+    """A legal, fight-seeking decision so a test game always ends."""
+    eng = live._load()
+    p = eng._p(seat)
+    if phase == "reflect":
+        d = {"reflection": "测试感悟"}
+    elif phase == "move":
+        legal = live._legal_zones(eng, p)
+        z = Zone.CENTER if Zone.CENTER in legal else legal[0]
+        d = {"move": live.NAME_BY_ZONE[z]}
+    else:
+        atk = build_observation(eng, seat).attackable_seats
+        nxt = live._next_legal(eng, p)
+        z = Zone.CENTER if Zone.CENTER in nxt else nxt[0]
+        d = {"action": f"attack:{atk[0]}" if atk else "draw", "move": live.NAME_BY_ZONE[z]}
+    os.makedirs(live.DECISION_DIR, exist_ok=True)
+    with open(f"{live.DECISION_DIR}/s{seat}.json", "w", encoding="utf-8") as f:
+        json.dump(d, f)
+
+
+def test_advance_waits_and_names_human_and_ai_seats(live):
+    live.cmd_init(_ns(human_seats="0"))
+    r = live.advance()
+    assert r["phase"] == "move"
+    assert r["humans"] == [0] and sorted(r["ai"]) == [1, 2, 3, 4, 5]
+    assert live.advance() == r                      # nothing changes until someone answers
+
+
+def test_advance_plays_a_whole_game(live):
+    live.cmd_init(_ns(human_seats="0"))
+    for _ in range(400):
+        r = live.advance()
+        if r["phase"] == "over":
+            break
+        for s in r["waiting"]:
+            _answer(live, s, r["phase"])
+    eng = live._load()
+    assert eng.phase == "over" and eng.check_winner() is not None
+
+
+def test_human_reflection_is_absorbed_without_blocking(live):
+    live.cmd_init(_ns(human_seats="0"))
+    eng = live._load()
+    eng.state.players[0].hp = -1
+    live._save(eng)
+    live.cmd_endround(_ns())
+    r = live.advance()                              # no AI died: straight on to the next round
+    assert r["phase"] == "move" and 0 not in r["waiting"]
+    os.makedirs(f"{live.HUMAN_DIR}/reflections", exist_ok=True)
+    with open(f"{live.HUMAN_DIR}/reflections/s0.json", "w", encoding="utf-8") as f:
+        json.dump({"reflection": "我太早进中心了"}, f)
+    live.advance()
+    assert live._load().reflections[0] == "我太早进中心了"

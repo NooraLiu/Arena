@@ -11,6 +11,10 @@ Usage:
   python3 play/session.py act 1 attack 3
   python3 play/session.py act 2 bomb city
   python3 play/session.py act 2 trade 3 <card_id>
+  python3 play/session.py init --players 6 --seed 7 --humans 1     # 1 random human seat (prints its link)
+  python3 play/session.py advance     # resolve whatever is ready; prints who must answer next:
+                                      # {"phase","waiting","ai","humans"} — ask the "ai" seats' agents,
+                                      # humans answer on /play.html; call advance again
   python3 play/session.py endround            # resolve deaths, shrink, next round;
                                               # prints {"reflect":[seats]}: ask each fallen seat once
   python3 play/session.py reflect             # collect reflections (startround/plan also do this)
@@ -733,9 +737,76 @@ def _absorb_reflections(eng):
 def cmd_reflect(args):
     eng = _load()
     _absorb_reflections(eng)
+    _absorb_human_reflections(eng)
     _save(eng)
     for seat, text in getattr(eng, "reflections", {}).items():
         print(f"s{seat} {eng._p(seat).character.name}: {text}")
+
+
+def _ns(**kw):
+    return argparse.Namespace(decisions=None, **kw)
+
+
+def _absorb_human_reflections(eng):
+    """Human seats hand in reflections whenever they like (never blocking the game):
+    app/human_api.py writes {HUMAN_DIR}/reflections/sN.json; pick them up here."""
+    if not hasattr(eng, "reflections"):
+        eng.reflections = {}
+    got = False
+    for seat in getattr(eng, "humans", {}):
+        fp = f"{HUMAN_DIR}/reflections/s{seat}.json"
+        if seat in eng.reflections or not os.path.exists(fp):
+            continue
+        try:
+            text = str(json.load(open(fp, encoding="utf-8")).get("reflection") or "").strip()
+        except Exception:
+            continue
+        if text:
+            died = next((r for r, seats in eng.deaths_by_round if seat in seats), eng.state.round_no)
+            eng.reflections[seat] = text
+            _record_thinking(eng, seat, "reflect", text, round_no=died)
+            got = True
+    return got
+
+
+def advance(max_steps=500):
+    """Move the game forward until someone has to answer, or it is over.
+    -> {"phase", "waiting": seats still to answer, "ai": those that are agents, "humans": those that are people}.
+    Every step reuses the cmd_* functions, so the rules are exactly the manual flow's."""
+    for _ in range(max_steps):
+        eng = _load()
+        if _absorb_human_reflections(eng):
+            _save(eng)
+        ph = getattr(eng, "phase", "start")
+        humans = getattr(eng, "humans", {})
+        if ph == "over":
+            return {"phase": "over", "waiting": [], "ai": [], "humans": []}
+        if ph == "start":
+            cmd_startround(_ns())
+            cmd_plan(_ns(phase="move"))
+            continue
+        need = sorted(getattr(eng, "pending_reflect", {}) or {}) if ph == "reflect" else _plan(eng, ph)[1]
+        have = set(_load_decisions(_ns()))
+        missing = [s for s in need if s not in have]
+        if missing:
+            return {"phase": ph, "waiting": missing,
+                    "ai": [s for s in missing if s not in humans],
+                    "humans": [s for s in missing if s in humans]}
+        if ph == "reflect":
+            _absorb_reflections(eng)
+            eng.phase = "over" if getattr(eng, "game_over", False) else "start"
+            _save(eng)
+        elif ph == "move":
+            cmd_movephase(_ns())
+            cmd_plan(_ns(phase="act"))
+        else:
+            cmd_actphase(_ns())
+            cmd_endround(_ns())
+    raise RuntimeError("advance(): too many steps without anyone to ask")
+
+
+def cmd_advance(args):
+    print(json.dumps(advance(), ensure_ascii=False))
 
 
 def cmd_plan(args):
@@ -947,6 +1018,7 @@ def main():
     pd = sub.add_parser("declare"); pd.add_argument("seat", type=int); pd.add_argument("guesses", nargs="+")
     sub.add_parser("result")
     sub.add_parser("reflect")
+    sub.add_parser("advance")
     pb = sub.add_parser("board"); pb.add_argument("phase", nargs="?", default=None)
     sub.add_parser("export")
     args = ap.parse_args()
@@ -954,7 +1026,7 @@ def main():
      "detonate": cmd_detonate, "event": cmd_event, "act": cmd_act, "endround": cmd_endround,
      "startround": cmd_startround, "plan": cmd_plan, "prompt": cmd_prompt,
      "movephase": cmd_movephase, "actphase": cmd_actphase,
-     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "reflect": cmd_reflect, "board": cmd_board, "export": cmd_export}[args.cmd](args)
+     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "reflect": cmd_reflect, "advance": cmd_advance, "board": cmd_board, "export": cmd_export}[args.cmd](args)
 
 
 if __name__ == "__main__":

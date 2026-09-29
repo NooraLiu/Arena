@@ -125,12 +125,18 @@ class Engine:
         # occupants of a now-closed zone are not moved; next round they must pick
         # an adjacent open zone (legal_moves excludes the closed zone, so no "stay").
 
+    LOVERS_WIN = -2        # check_winner sentinel: only the two Lovers are left
+
     def check_winner(self):
+        """Seat of the last survivor, -1 if nobody is left, LOVERS_WIN if the only survivors
+        are the two Lovers (they win together, no need to fight it out), else None."""
         alive = self.alive_players()
         if len(alive) == 1:
             return alive[0].seat
         if len(alive) == 0:
             return -1
+        if len(alive) == 2 and all(p.identity == "Lovers" for p in alive):
+            return self.LOVERS_WIN
         return None
 
     def _apply_additional(self, p: PlayerState, action):
@@ -265,7 +271,9 @@ class Engine:
         Returns (event, target_zone) if one fired, else None."""
         if self.state.round_no not in config.EVENT_ROUNDS or not self.state.events:
             return None
-        target = self._D4_ZONES[self.rng.randint(1, 4) - 1]
+        # roll among the outer zones still open; once only the center is left, it hits the center
+        open_outer = [z for z in self._D4_ZONES if z in self.state.open_zones]
+        target = open_outer[self.rng.randint(1, len(open_outer)) - 1] if open_outer else Zone.CENTER
         ev = self.state.events.pop(0)
         self.apply_random_event(ev, target)
         return ev, target
@@ -341,8 +349,8 @@ class Engine:
         while True:
             w = self.check_winner()
             if w is not None:
-                outcome = "draw" if w == -1 else "win"
-                return {"winner": None if w == -1 else w,
+                outcome = {-1: "draw", self.LOVERS_WIN: "lovers"}.get(w, "win")
+                return {"winner": None if w < 0 else w,
                         "rounds": self.state.round_no - 1,
                         "outcome": outcome, "elim_round_by_seat": elim_round,
                         "identity_winners": self.identity_winners()}

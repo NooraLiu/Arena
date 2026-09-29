@@ -11,7 +11,9 @@ Usage:
   python3 play/session.py act 1 attack 3
   python3 play/session.py act 2 bomb city
   python3 play/session.py act 2 trade 3 <card_id>
-  python3 play/session.py endround            # resolve deaths, shrink, next round
+  python3 play/session.py endround            # resolve deaths, shrink, next round;
+                                              # prints {"reflect":[seats]}: ask each fallen seat once
+  python3 play/session.py reflect             # collect reflections (startround/plan also do this)
 """
 import argparse
 import json
@@ -175,7 +177,9 @@ def cmd_endround(args):
     before = {p.seat for p in eng.alive_players()}
     eng.resolve_deaths()
     eng.shrink_step()
-    dead = [eng._p(s).character.name for s in before - {p.seat for p in eng.alive_players()}]
+    dead_seats = sorted(before - {p.seat for p in eng.alive_players()})
+    dead = [eng._p(s).character.name for s in dead_seats]
+    _ask_reflections(eng, dead_seats)                 # one last call per fallen seat
     eng.state.round_no += 1
     eng.state.first_seat = (eng.state.first_seat + 1) % len(eng.state.players)
     _save(eng)
@@ -184,8 +188,11 @@ def cmd_endround(args):
     msg += f"eliminated: {dead}. " if dead else "no eliminations. "
     msg += f"alive: {[p.character.name for p in eng.alive_players()]}."
     if w is not None:
-        msg += f"  *** GAME OVER: {'draw' if w == -1 else eng._p(w).character.name + ' survives'} ***"
+        end = {-1: "draw", eng.LOVERS_WIN: "only the Lovers are left"}.get(w) or eng._p(w).character.name + " survives"
+        msg += f"  *** GAME OVER: {end} ***"
     print(msg)
+    if dead_seats:
+        print(json.dumps({"reflect": dead_seats}))
 
 
 def cmd_say(args):
@@ -332,8 +339,9 @@ def _export(eng):
     out={"roster":roster,"snapshots":snaps,"events":events,
          "winners":({str(k):v for k,v in eng.identity_winners().items()} if over else {}),
          "thinking":{str(k):{str(rr):tt for rr,tt in v.items()} for k,v in thinking.items()},
-         "outcome":("进行中" if not over else ("draw" if w==-1 else "win")),
-         "rounds":st.round_no-1,"survivor":(None if not over or w==-1 else w)}
+         "outcome":("进行中" if not over else {-1:"draw",eng.LOVERS_WIN:"lovers"}.get(w,"win")),
+         "rounds":st.round_no-1,"survivor":(None if not over or w<0 else w),
+         "reflections":{str(k):v for k,v in getattr(eng,"reflections",{}).items()}}
     _json.dump(out, open(f"{APP_LIVE}/game.json","w",encoding="utf-8"), ensure_ascii=False)
 
 
@@ -559,16 +567,16 @@ def _prompt(eng, seat, phase):
     return "\n".join(L)
 
 
-def _record_thinking(eng, seat, phase, memo):
+def _record_thinking(eng, seat, phase, memo, round_no=None):
     import json as _json
     tf = f"{APP_LIVE}/think.json"
     try:
         t = _json.load(open(tf, encoding="utf-8"))
     except Exception:
         t = {}
-    r = str(eng.state.round_no)
+    r = str(round_no or eng.state.round_no)
     cur = t.setdefault(str(seat), {}).get(r, "")
-    tag = "移动" if phase == "move" else "行动"
+    tag = {"move": "移动", "act": "行动", "reflect": "出局感悟"}.get(phase, phase)
     t[str(seat)][r] = (cur + " | " if cur else "") + f"[{tag}] {memo}"
     os.makedirs(APP_LIVE, exist_ok=True)
     _json.dump(t, open(tf, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
@@ -582,8 +590,9 @@ def _apply_talk(eng, seat, d, phase):
             m = {"to": m[0], "text": m[1]} if len(m) >= 2 else {"to": "all", "text": str(m[0]) if m else ""}
         to = m.get("to")
         to = None if to in (None, "all", "public", "公开") else int(str(to).lstrip("sS"))
-        if m.get("text"):
-            eng.post_message(seat, to, str(m["text"]))
+        text = m.get("text") or m.get("msg") or m.get("message") or m.get("content")
+        if text:
+            eng.post_message(seat, to, str(text))
     if d.get("memo"):
         _memos(eng)[seat] = str(d["memo"])[:400]
         _record_thinking(eng, seat, phase, str(d["memo"]))
@@ -594,10 +603,71 @@ def _apply_declare(eng, seat, spec):
     eng.declare(seat, [(int(a.strip().lstrip("s")), b.strip()) for a, b in pairs])
 
 
+def _ask_reflections(eng, seats):
+    """A seat that just fell gets one last prompt: look back on its game. After that it is never
+    called again (dead seats are never asked to move or act)."""
+    if not seats:
+        return
+    import shutil
+    for d in (PROMPT_DIR, DECISION_DIR):
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d, exist_ok=True)
+    r = eng.state.round_no
+    for seat in seats:
+        p = eng._p(seat)
+        hits = [e for e in eng.log.events if e.type == "attack" and (e.payload or {}).get("target") == seat]
+        last = hits[-1] if hits else None
+        how = (f"第 {last.round_no} 回合被 s{last.actor} {eng._p(last.actor).character.name} 打倒" if last
+               else "没有被人直接攻击(事件/炸弹/毒)")
+        alive = ", ".join(f"s{q.seat} {q.character.name}({q.hp}血)" for q in eng.alive_players())
+        L = [f"你是 s{seat} {p.character.name},秘密身份 {p.identity}。你在第 {r} 回合出局了:{how}。",
+             f"胜利条件: {WIN_COND.get(p.identity, '?')}",
+             f"还活着的人: {alive or '无'}",
+             f"你最后的备忘: {_memos(eng).get(seat, '(无)')}",
+             "",
+             "游戏对你来说结束了,这是最后一次叫你。写一段出局感悟(100~200 字):你原本的计划、"
+             "哪一步走错了或者被谁坑了、如果重来你会怎么打。不用再做任何行动。",
+             '决策格式: {"reflection":"..."}',
+             f"把 JSON 用 Write 写到 {DECISION_DIR}/s{seat}.json(只写这一个文件)。"]
+        with open(f"{PROMPT_DIR}/s{seat}.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(L))
+    eng.pending_reflect = {seat: r for seat in seats}
+
+
+def _absorb_reflections(eng):
+    """Collect the fallen seats' reflections (called before the prompt dirs are reused)."""
+    pending = getattr(eng, "pending_reflect", {}) or {}
+    if not pending:
+        return
+    got = _load_decisions(argparse.Namespace(decisions=None))
+    if not hasattr(eng, "reflections"):
+        eng.reflections = {}
+    for seat, r in pending.items():
+        d = got.get(seat)
+        text = d and (d.get("reflection") or d.get("memo"))
+        if text:
+            eng.reflections[seat] = str(text)
+            _record_thinking(eng, seat, "reflect", str(text), round_no=r)
+        else:
+            print(f"! s{seat} 没交出局感悟,跳过")
+    eng.pending_reflect = {}
+
+
+def cmd_reflect(args):
+    eng = _load()
+    _absorb_reflections(eng)
+    _save(eng)
+    for seat, text in getattr(eng, "reflections", {}).items():
+        print(f"s{seat} {eng._p(seat).character.name}: {text}")
+
+
 def cmd_plan(args):
     """Decide who must be asked, and write each asked seat's private prompt to its own file."""
     import shutil
     eng = _load()
+    if getattr(eng, "pending_reflect", None):
+        _absorb_reflections(eng)
+        _save(eng)
     auto, ask = _plan(eng, args.phase)
     for d in (PROMPT_DIR, DECISION_DIR):
         shutil.rmtree(d, ignore_errors=True)
@@ -631,6 +701,7 @@ def cmd_prompt(args):
 def cmd_startround(args):
     """Round start: activate a telegraphed Feast, clear sandstorm, maybe fire a random event."""
     eng = _load()
+    _absorb_reflections(eng)
     st = eng.state
     st.feast_active, st.feast_next = st.feast_next, False
     st.frozen_zones = set()
@@ -782,6 +853,7 @@ def main():
     pin = sub.add_parser("inbox"); pin.add_argument("seat", type=int)
     pd = sub.add_parser("declare"); pd.add_argument("seat", type=int); pd.add_argument("guesses", nargs="+")
     sub.add_parser("result")
+    sub.add_parser("reflect")
     pb = sub.add_parser("board"); pb.add_argument("phase", nargs="?", default=None)
     sub.add_parser("export")
     args = ap.parse_args()
@@ -789,7 +861,7 @@ def main():
      "detonate": cmd_detonate, "event": cmd_event, "act": cmd_act, "endround": cmd_endround,
      "startround": cmd_startround, "plan": cmd_plan, "prompt": cmd_prompt,
      "movephase": cmd_movephase, "actphase": cmd_actphase,
-     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "board": cmd_board, "export": cmd_export}[args.cmd](args)
+     "say": cmd_say, "inbox": cmd_inbox, "declare": cmd_declare, "result": cmd_result, "reflect": cmd_reflect, "board": cmd_board, "export": cmd_export}[args.cmd](args)
 
 
 if __name__ == "__main__":

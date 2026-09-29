@@ -36,3 +36,16 @@ def test_round_cap_forces_termination(monkeypatch):
     assert result["outcome"] == "capped"
     assert result["winner"] is not None        # highest-HP survivor recorded
     assert result["rounds"] == 2
+
+
+def test_only_the_two_lovers_left_ends_the_game():
+    import random
+    from arena.setup import new_game
+    eng = new_game(6, random.Random(1), lambda: None)
+    lovers = [p for p in eng.state.players if p.identity == "Lovers"]
+    assert len(lovers) == 2
+    for p in eng.state.players:
+        p.alive = p in lovers
+    assert eng.check_winner() == eng.LOVERS_WIN
+    lovers[0].alive = False
+    assert eng.check_winner() == lovers[1].seat

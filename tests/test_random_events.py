@@ -103,3 +103,20 @@ def test_maybe_event_only_fires_on_event_rounds_and_consumes_one():
     fired = eng.maybe_random_event()
     assert fired is not None and len(eng.state.events) == 0
     assert p.hp == 10 - config.EVENT_WOLF_DAMAGE              # forest wolves hit the seat there
+
+
+def test_event_only_targets_open_outer_zones_then_center():
+    import random
+    from arena.models import Zone
+    from arena import config
+    from arena.setup import new_game
+    eng = new_game(6, random.Random(3), lambda: None, data_path="Arena牌堆表.xlsx")
+    assert len(eng.state.events) >= 4
+    eng.state.round_no = config.EVENT_ROUNDS[0]
+    eng.state.open_zones = {Zone.CENTER, Zone.N}          # every outer zone but forest has closed
+    for _ in range(3):
+        _, zone = eng.maybe_random_event()
+        assert zone == Zone.N
+    eng.state.open_zones = {Zone.CENTER}
+    _, zone = eng.maybe_random_event()
+    assert zone == Zone.CENTER

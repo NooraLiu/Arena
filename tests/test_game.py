@@ -12,7 +12,7 @@ def _game(seed, n=6):
 
 def test_game_terminates_and_reports_rounds():
     result = asyncio.run(_game(1).play_game())
-    assert result["outcome"] in ("win", "draw", "capped")
+    assert result["outcome"] in ("win", "draw", "capped", "lovers")
     assert result["rounds"] >= 1
 
 

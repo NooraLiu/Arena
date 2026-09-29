@@ -48,7 +48,7 @@ def run_game(players: int, seed: int) -> dict:
     while True:
         w = eng.check_winner()
         if w is not None:
-            outcome, survivor = ("draw", None) if w == -1 else ("win", w)
+            outcome, survivor = {-1: ("draw", None), eng.LOVERS_WIN: ("lovers", None)}.get(w, ("win", w))
             break
         if eng.state.round_no > config.ROUND_CAP:
             alive = eng.alive_players()

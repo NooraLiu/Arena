@@ -137,7 +137,7 @@ function render(){
   const inprog=(d.outcome==="进行中");
   let h;
   if(inprog){h=`<h2>⏳ 第 ${d.rounds} 回合 · 进行中 · 身份胜负待终局结算</h2>`;}
-  else{const surv=d.survivor==null?"无(平局)":nm(d.survivor);
+  else{const surv=d.outcome==="lovers"?"恋人同赢(只剩恋人两人)":(d.survivor==null?"无(平局)":nm(d.survivor));
     h=`<h2>🏆 ${d.rounds} 回合 · ${d.outcome} · 存活冠军:${surv}</h2>`;}
   let any=false;
   for(const s in (d.winners||{})){const t=d.winners[s];if(t&&t.length){any=true;h+=`<div class="wrow">• <b style="color:${COLOR[+s]}">${nm(+s)}</b> 赢得:${t.join("、")}</div>`;}}

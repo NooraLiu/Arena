@@ -120,3 +120,28 @@ def test_event_only_targets_open_outer_zones_then_center():
     eng.state.open_zones = {Zone.CENTER}
     _, zone = eng.maybe_random_event()
     assert zone == Zone.CENTER
+
+
+def test_feast_draws_extra_center_cards_or_heals_once_the_center_is_empty():
+    import random
+    from arena.models import Zone, Draw
+    from arena import config
+    from arena.setup import new_game
+    eng = new_game(6, random.Random(3), lambda: None, data_path="Arena牌堆表.xlsx")
+    p = eng.state.players[0]
+    for q in eng.state.players[1:]:
+        q.zone = Zone.N
+    p.zone = Zone.CENTER
+    eng.state.feast_active = True
+    left = len(eng.state.decks[Zone.CENTER])
+    eng._apply(p, Draw())
+    base = eng._skill(p).draw_count(p, True, Zone.CENTER)          # e.g. Elliot draws 2 when alone
+    assert len(eng.state.decks[Zone.CENTER]) == left - base - config.EVENT_FEAST_BONUS
+    eng.state.decks[Zone.CENTER] = []
+    p.hand.clear()
+    p.hp = 4
+    eng._apply(p, Draw())
+    assert p.hp == 4 + config.EVENT_FEAST_HEAL
+    p.hp = p.character.hp_max - 1
+    eng._apply(p, Draw())
+    assert p.hp == p.character.hp_max                    # never above max

@@ -22,6 +22,7 @@ EVENT_WOLF_DAMAGE = 4         # E01 变异狼群
 EVENT_FIRE_DAMAGE = 3         # E06 Fire Balls
 EVENT_DOGS_DAMAGE = 3         # E07 Hungry Dogs (if you can't pay 2 food)
 EVENT_FEAST_BONUS = 2         # E08 The Feast: extra draws for center dwellers next round
+EVENT_FEAST_HEAL = 3          # ...or, once the center deck is empty, a heal of this much instead
 
 
 def _weapon(name, bonus, i):

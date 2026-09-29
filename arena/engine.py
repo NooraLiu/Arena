@@ -103,10 +103,23 @@ class Engine:
 
     def center_draw(self, p: PlayerState):
         """The draw that comes with a forced center attack (+Feast bonus while it's active)."""
-        n = 1 + (config.EVENT_FEAST_BONUS if self.state.feast_active else 0)
-        for _ in range(n):
-            self._draw_one(p)
+        self._draw_one(p)
+        self._feast(p)
         enforce_hand_limit(p, self._skill(p).hand_limit(p))
+
+    def _feast(self, p: PlayerState):
+        """The Feast, for someone in the center while it is active: bonus center draws, or,
+        once the center deck is empty, a heal instead (never above max HP)."""
+        if not (self.state.feast_active and p.zone == Zone.CENTER):
+            return
+        if self.state.decks.get(Zone.CENTER):
+            for _ in range(config.EVENT_FEAST_BONUS):
+                self._draw_one(p)
+            return
+        before = p.hp
+        p.hp = min(p.character.hp_max, p.hp + config.EVENT_FEAST_HEAL)
+        self.log.record(Event("feast_heal", self.state.round_no, p.seat, "public",
+                               {"from": before, "hp": p.hp}))
 
     def _lowest_hp(self, seats):
         return sorted(seats, key=lambda s: self._p(s).hp)[0]
@@ -391,10 +404,9 @@ class Engine:
             alone = not any(q.alive and q.seat != p.seat and q.zone == p.zone
                             for q in self.state.players)
             draws = skill.draw_count(p, alone, p.zone)
-            if self.state.feast_active and p.zone == Zone.CENTER:   # the Feast: bonus center draws
-                draws += config.EVENT_FEAST_BONUS
             for _ in range(draws):
                 self._draw_one(p)
+            self._feast(p)                                          # the Feast: bonus draws or a heal
             enforce_hand_limit(p, skill.hand_limit(p))
         elif isinstance(action, Attack):
             defender = self._p(action.target_seat)

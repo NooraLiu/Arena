@@ -102,7 +102,7 @@ def check_winners(engine, declarations: Optional[Dict[int, List[str]]] = None) -
                     wins[s].append("Bodyguard")
         elif ii == "Lovers":
             partner = next((q.seat for q in st.players if q.identity == "Lovers" and q.seat != s), None)
-            if partner is not None and (s in alive or partner in alive):   # either survives -> both win
+            if partner is not None and s in alive and partner in alive:   # both alive at the end
                 wins[s].append("Lovers")
         elif ii == "Sour Lemon":
             if any(ident.get(v) == "Lovers" and engine.killer_of.get(v) == s for v in engine.killer_of):

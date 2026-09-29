@@ -138,7 +138,7 @@ def cmd_event(args):
     if eng.state.frozen_zones:
         print(f"  沙尘暴锁定区域(本轮不能移动): {[NAME_BY_ZONE[z] for z in eng.state.frozen_zones]}")
     if eng.state.feast_next:
-        print("  盛宴预告:下回合待在中心区的人多抽 2 张牌。")
+        print("  盛宴预告:下回合待在中心区的人多抽 2 张牌(中心没牌了就改为回 3 血)。")
     print("  当前血量: " + ", ".join(f"{p.character.name}={p.hp}" for p in eng.alive_players()))
 
 
@@ -354,7 +354,7 @@ TYPE_ZH = {"weapon": "武器", "food": "食物", "armor": "护甲", "ammo": "碎
 PROMPT_DIR = f"{PLAY_LIVE}/prompts"      # one private file per seat: s{seat}.txt
 DECISION_DIR = f"{PLAY_LIVE}/decisions"  # the seat's agent writes s{seat}.json here
 
-PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed")
+PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal")
 
 
 def _memos(eng):
@@ -501,8 +501,8 @@ def _prompt(eng, seat, phase):
         L.append(f"  s{q.seat} {q.character.name}: {q.hp}/{q.character.hp_max}血 · {zq} · 武器 {eqq}")
     L.append(f"开放区: {', '.join(sorted(NAME_BY_ZONE[z] for z in st.open_zones))}"
              + (f" · 沙尘暴锁定: {[NAME_BY_ZONE[z] for z in st.frozen_zones]}" if st.frozen_zones else "")
-             + (" · 盛宴生效中(中心区多抽2张)" if st.feast_active else "")
-             + (" · 盛宴预告:下回合中心区多抽2张" if st.feast_next else ""))
+             + (" · 盛宴生效中(中心区多抽2张;中心没牌了就改为回 3 血)" if st.feast_active else "")
+             + (" · 盛宴预告:下回合中心区多抽2张(中心没牌了就改为回 3 血)" if st.feast_next else ""))
     left = {z: len(st.decks.get(z, [])) for z in sorted(st.open_zones, key=lambda z: z.value)}
     L.append("各区剩余张数: " + ", ".join(f"{NAME_BY_ZONE[z]} {n}" + ("(空!抽不到牌)" if n == 0 else "")
                                         for z, n in left.items()))
@@ -529,6 +529,8 @@ def _prompt(eng, seat, phase):
                 L.append(f"  r{e.round_no} 💥{pl['zone']} 炸到 s{pl['hit']}")
             elif e.type == "feed":
                 L.append(f"  r{e.round_no} s{e.actor} 喂 s{pl['to']} 吃东西(→{pl['hp']}血)")
+            elif e.type == "feast_heal":
+                L.append(f"  r{e.round_no} s{e.actor} 盛宴回血(→{pl['hp']}血)")
             else:
                 L.append(f"  r{e.round_no} s{e.actor} {e.type}")
     msgs = [m for m in eng.visible_messages(seat) if m.round_no >= r - 1]
@@ -838,7 +840,7 @@ def cmd_actphase(args):
         pl = e.payload or {}
         if e.type == "attack":
             print(f"  s{e.actor}→s{pl['target']} 掷{pl['roll']} 伤{pl['damage']}{' 倒地' if pl['downed'] else ''}")
-        elif e.type in ("draw", "heal", "steal", "trade", "craft", "poison_planted", "plant_bomb", "poison", "peek", "feed"):
+        elif e.type in ("draw", "heal", "steal", "trade", "craft", "poison_planted", "plant_bomb", "poison", "peek", "feed", "feast_heal"):
             print(f"  s{e.actor} {e.type} {pl}")
     print("血量: " + ", ".join(f"s{p.seat}={p.hp}" for p in eng.alive_players()))
 

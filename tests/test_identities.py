@@ -100,15 +100,17 @@ def test_play_game_reports_identity_winners():
     assert all(pl.identity is not None for pl in eng.state.players)   # identities were dealt
 
 
-def test_surviving_lover_wins_even_if_partner_died():
+def test_lovers_win_only_if_both_survive():
     a = _p(0, "A", 10, Zone.N, "Lovers")
     b = _p(1, "B", 10, Zone.N, "Lovers")
     c = _p(2, "C", 10, Zone.N, "Warrior")
     eng = _engine([a, b, c])
-    b.alive = False
     c.alive = False
     w = identities.check_winners(eng)
     assert "Lovers" in w.get(0, []) and "Lovers" in w.get(1, [])
+    b.alive = False                                    # partner died: no Lovers win for either
+    w = identities.check_winners(eng)
+    assert "Lovers" not in w.get(0, []) and "Lovers" not in w.get(1, [])
 
 
 def test_social_butterfly_guesses_loose_names_and_lovers_count_once():

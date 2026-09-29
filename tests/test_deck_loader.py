@@ -1,6 +1,6 @@
 from arena.models import Zone, CardType
 from arena.deck_loader import load_characters, load_decks, load_game_data, parse_zones
-from tests.xlsx_helpers import make_workbook
+from tests.xlsx_helpers import make_workbook, DEFAULT_CHARS
 
 
 def _zones():
@@ -89,3 +89,13 @@ def test_load_game_data_returns_both(tmp_path):
                       zones=_zones())
     chars, decks = load_game_data(p)
     assert len(chars) == 1 and len(decks[Zone.N]) == 4
+
+
+def test_zero_count_card_is_left_out_but_blank_count_means_one(tmp_path):
+    from arena.models import Zone
+    path = make_workbook(tmp_path / "d.xlsx", DEFAULT_CHARS, {
+        "林区牌堆": [["林01", "食物", "面包", "", 2, "", "", 0, "退役"],
+                    ["林02", "武器", "木棍", "", 2, "", "", None, ""]],
+    })
+    decks = load_decks(path)
+    assert [c.name for c in decks[Zone.N]] == ["木棍"]

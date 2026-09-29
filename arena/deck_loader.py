@@ -133,12 +133,15 @@ def load_decks(path: str, rng: Optional[random.Random] = None) -> Dict[Zone, Lis
             continue
         for row in _iter_rows(wb[sheet], "牌名"):
             name = str(row["牌名"]).strip()
+            count = _int(row.get("张数"), 1)      # blank = 1; 0 = retired card, kept in the sheet only
+            if count <= 0:
+                continue
             ctype = _card_type(row.get("类型"), sheet, name)
             value = _int(row.get("数值"), 1 if ctype == CardType.AMMO else 0)
             if ctype == CardType.ARMOR:
                 value = abs(value)
             _add_cards(
-                decks, [zone], max(1, _int(row.get("张数"), 1)),
+                decks, [zone], count,
                 base_id=str(row.get("ID") or name), ctype=ctype, value=value, name=name,
                 description=str(row.get("描述") or ""), effect=str(row.get("特殊效果") or ""),
                 synergy=str(row.get("角色协同") or ""),

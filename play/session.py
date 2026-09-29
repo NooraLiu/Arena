@@ -478,6 +478,10 @@ def _prompt(eng, seat, phase):
     known = getattr(eng, "known_identities", {}).get(seat)
     if known:
         L.append("【你已秘密确认的身份】" + ", ".join(f"s{k} {eng._p(k).character.name}={v}" for k, v in known.items()))
+    for b in st.bombs:
+        if b.planter_seat == seat:
+            L.append(f"💣 你埋的炸弹: {NAME_BY_ZONE[b.zone]},第 {b.detonate_round} 回合移动后引爆"
+                     f"(该区所有人 -6,包括你自己)——那回合别待在 {NAME_BY_ZONE[b.zone]}!")
     blind = phase == "move" and r == 1
     L.append("【场上】" + ("(第 1 回合,位置未知)" if blind else "位置为" + ("上回合结束时" if phase == "move" else "本回合")))
     for q in st.players:
@@ -574,6 +578,8 @@ def _apply_talk(eng, seat, d, phase):
     for m in (d.get("say") or [])[:config.MESSAGES_PER_ROUND]:
         if isinstance(m, str):                 # bare string = public message
             m = {"to": "all", "text": m}
+        elif isinstance(m, (list, tuple)):     # ["to", "text"]
+            m = {"to": m[0], "text": m[1]} if len(m) >= 2 else {"to": "all", "text": str(m[0]) if m else ""}
         to = m.get("to")
         to = None if to in (None, "all", "public", "公开") else int(str(to).lstrip("sS"))
         if m.get("text"):

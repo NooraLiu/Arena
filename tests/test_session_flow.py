@@ -67,3 +67,27 @@ def test_sandbox_keeps_trial_games_away_from_the_live_game(tmp_path):
     assert (tmp_path / "app_live" / "game.json").exists()
     assert len(list((tmp_path / "play_live" / "prompts").glob("s*.txt"))) == 6
     assert (os.path.getmtime(live) if os.path.exists(live) else None) == before
+
+
+def _seat_with(eng, identity):
+    return next(p.seat for p in eng.state.players if p.identity == identity)
+
+
+def test_progress_tells_vendetta_its_kill_counted_or_was_stolen():
+    eng = _game([Zone.N] * 6)
+    v = _seat_with(eng, "Vendetta")
+    t = (v + 1) % 6
+    assert "还活着" in S._progress(eng, v)
+    eng._p(t).alive = False
+    eng.killer_of[t] = v
+    assert "✅" in S._progress(eng, v)
+    eng.killer_of[t] = (v + 2) % 6
+    assert "❌" in S._progress(eng, v)
+
+
+def test_progress_never_names_other_identities():
+    eng = _game([Zone.N] * 6)
+    for p in eng.state.players:
+        line = S._progress(eng, p.seat)
+        others = {q.identity for q in eng.state.players if q.identity != p.identity}
+        assert not any(i in line for i in others), line

@@ -471,6 +471,52 @@ def _card_str(c):
     return f"{c.name}[{c.id}]({TYPE_ZH.get(c.type.value, c.type.value)}{c.value})"
 
 
+def _progress(eng, seat):
+    """One line on how this seat's identity goal stands. Built only from what the seat already
+    knows (its own identity, public deaths, who dealt each finishing blow) -- never others' identities."""
+    st, p = eng.state, eng._p(seat)
+    n = len(st.players)
+    name = lambda s: f"s{s} {eng._p(s).character.name}"
+    mine = [v for v, k in eng.killer_of.items() if k == seat]
+    parts = [f"你亲手击杀: {', '.join(name(v) for v in mine) or '无'}"]
+    ident = p.identity
+    if ident == "Vendetta":
+        t = (seat + 1) % n
+        if eng._p(t).alive:
+            parts.append(f"复仇目标 {name(t)} 还活着({eng._p(t).hp} 血),要你亲手补最后一刀")
+        elif eng.killer_of.get(t) == seat:
+            parts.append(f"✅ 你已亲手杀死复仇目标 {name(t)},Vendetta 胜利已到手(终局结算),接下来尽量活下去")
+        else:
+            k = eng.killer_of.get(t)
+            parts.append(f"❌ 复仇目标 {name(t)} 已被{name(k) if k is not None else '事件/炸弹'}杀死,"
+                         "Vendetta 胜利已不可能,改为争取活到最后")
+    elif ident == "Lovers":
+        mate = next((q for q in st.players if q.identity == "Lovers" and q.seat != seat), None)
+        if mate is not None:
+            parts.append(f"恋人 {name(mate.seat)} 还活着({mate.hp} 血),两人都活到最后才算恋人胜利" if mate.alive
+                         else f"❌ 恋人 {name(mate.seat)} 已死,恋人胜利已不可能,改为争取做最后的存活者")
+    elif ident == "Warrior":
+        others = max((k for s2, k in eng.kills.items() if s2 != seat), default=0)
+        me = eng.kills.get(seat, 0)
+        state = "暂时唯一最多 ✅" if me > others else ("和别人并列,并列不算赢" if me == others and me else "落后")
+        parts.append(f"击杀数: 你 {me},其他人最多 {others} —— {state}")
+    elif ident == "Pacifist":
+        parts.append("你还没主动攻击过 ✅" if seat not in eng.ever_attacked else "❌ 你已主动攻击过,Pacifist 胜利已不可能")
+    elif ident == "Myrtle":
+        if eng.deaths_by_round:
+            parts.append("❌ 已经有人比你先死,Myrtle 胜利已不可能,改为争取活到最后")
+    elif ident == "Negotiator":
+        need = n - 2
+        parts.append(f"已和 {len(eng.trade_partners.get(seat, ()))}/{need} 名不同玩家交换过")
+    elif ident == "Judas":
+        best = max((c for pair, c in eng.pair_trades.items() if seat in pair), default=0)
+        parts.append(f"和同一个人最多交换过 {best}/3 次")
+    elif ident == "Social Butterfly":
+        parts.append("已声明,终局按声明结算(可以更新)" if seat in eng.declarations
+                     else "还没声明身份——用 declare 写下你的猜测,被淘汰前记得声明")
+    return "【身份进度】" + ";".join(parts)
+
+
 def _prompt(eng, seat, phase):
     st, p = eng.state, eng._p(seat)
     r = st.round_no
@@ -483,6 +529,7 @@ def _prompt(eng, seat, phase):
     L.append(f"手牌: {', '.join(_card_str(c) for c in p.hand) or '无'}")
     if seat in eng.declarations:
         L.append(f"你已声明: {eng.declarations[seat]}")
+    L.append(_progress(eng, seat))
     known = getattr(eng, "known_identities", {}).get(seat)
     if known:
         L.append("【你已秘密确认的身份】" + ", ".join(f"s{k} {eng._p(k).character.name}={v}" for k, v in known.items()))

@@ -51,6 +51,7 @@
 </header>
 <main>
   <div id="fatal" class="err"></div>
+  <div id="notice" class="err"></div>
   <div class="grid">
     <div>
       <div class="panel"><h3>地图</h3><div class="map" id="map"></div></div>
@@ -121,7 +122,7 @@ function renderMe() {
   const m = V.me;
   const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
   $("me").innerHTML = `
-    <div class="row">${m.hp}/${m.hp_max} 血 · 攻击 ${m.base_attack}+武器 = ${m.attack} · 在 ${ZN[m.zone]}</div>
+    <div class="row">${m.hp}/${m.hp_max} 血 · 攻击 ${m.base_attack}+武器 = ${m.attack} · ${m.zone ? "在 " + ZN[m.zone] : "位置未定"}</div>
     <div class="row"><span class="k">技能</span> ${esc(m.skill)}</div>
     <div class="row"><span class="k">装备</span> ${m.equipped ? `<span class="card">${esc(m.equipped.label)}</span>` : "无"}</div>
     <div class="row"><span class="k">手牌</span> ${m.hand.map(c => `<span class="card">${esc(c.label)}</span>`).join("") || "无"}</div>
@@ -168,8 +169,26 @@ function renderForm() {
   h += `<div class="field"><label>备忘(只有你自己下回合能看到)</label><textarea id="f_memo" maxlength="400">${esc(V.me.memo)}</textarea></div>`;
   h += `<div id="f_err" class="err"></div><button id="f_go">${V.status === "submitted" ? "修改提交" : "提交"}</button> <span id="f_ok" class="ok"></span>`;
   $("form").innerHTML = h;
+  if (V.submitted) prefill(V.submitted);
   $("form").oninput = () => { EDITING = true; };
   $("f_go").onclick = submit;
+}
+
+function prefill(d) {
+  const set = (id, v) => { const el = $(id); if (el && v !== undefined && v !== null) el.value = v; };
+  set("f_move", d.move); set("f_action", d.action); set("f_memo", d.memo);
+  (d.say || []).slice(0, 2).forEach((m, i) => { set("f_to" + i, m.to === "all" || m.to == null ? "all" : m.to); set("f_say" + i, m.text); });
+  (d.extra || []).forEach(x => {
+    const [k, ...rest] = String(x).split(":");
+    const cb = document.querySelector(`[data-x="${k}"]`); if (cb) cb.checked = true;
+    if (k === "declare") {
+      rest.join(":").split(",").forEach(pair => { const [s, i] = pair.split("="); const el = document.querySelector(`[data-decl="${String(s).replace(/^s/, "")}"]`); if (el) el.value = i; });
+      return;
+    }
+    const t = document.querySelector(`[data-t="${k}"]`), c = document.querySelector(`[data-c="${k}"]`), z = document.querySelector(`[data-z="${k}"]`);
+    let i = 0;
+    if (t) t.value = rest[i++]; if (c) c.value = rest[i++]; if (z) z.value = rest[i++];
+  });
 }
 
 function extraRow(x) {
@@ -183,7 +202,7 @@ function extraRow(x) {
 }
 
 function collect() {
-  const o = V.options, d = {move: $("f_move").value, memo: $("f_memo").value.trim(), say: []};
+  const o = V.options, d = {round: V.round, phase: V.phase, move: $("f_move").value, memo: $("f_memo").value.trim(), say: []};
   for (const i of [0, 1]) {
     const t = $("f_say" + i).value.trim();
     if (t) { const to = $("f_to" + i).value; d.say.push({to: to === "all" ? "all" : +to, text: t}); }
@@ -213,11 +232,12 @@ async function post(body) {
 
 async function submit() {
   $("f_go").disabled = true; $("f_err").textContent = ""; $("f_ok").textContent = "";
-  const [code, r] = await post(collect());
+  let code, r;
+  try { [code, r] = await post(collect()); } catch (e) { code = 0; r = {error: "连不上服务器,稍后再试"}; }
   $("f_go").disabled = false;
-  if (code === 200) { EDITING = false; $("f_ok").textContent = "已提交 ✓"; SIG = ""; poll(); }
+  if (code === 200) { EDITING = false; $("notice").textContent = ""; $("f_ok").textContent = "已提交 ✓"; SIG = ""; poll(); }
+  else if (code === 409) { EDITING = false; $("notice").textContent = r.error; SIG = ""; poll(); }
   else $("f_err").textContent = (r.errors || [r.error]).join("\n");
-  if (code === 409) { SIG = ""; poll(); }
 }
 
 function renderReflect() {

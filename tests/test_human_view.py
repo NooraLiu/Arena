@@ -121,3 +121,13 @@ def test_win_condition_has_no_template_placeholders_or_markdown(live):
     for p in eng.state.players:
         text = H.human_view(eng, p.seat)["me"]["win_condition"]
         assert "{" not in text and "**" not in text, text
+
+
+def test_round_one_hides_even_my_own_placeholder_zone(live):
+    live.cmd_init(_ns())
+    eng = live._load()                             # phase "start": nothing chosen yet
+    v = H.human_view(eng, 0)
+    assert v["me"]["zone"] is None and all(p["zone"] is None for p in v["players"])
+    eng = _started(live)
+    v = H.human_view(eng, 0)
+    assert v["me"]["zone"] is None and v["players"][0]["zone"] is None

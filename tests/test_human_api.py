@@ -72,3 +72,36 @@ def test_all_human_game_advances_by_itself(live):
         assert A.post_decision(s, keys[s], {"move": "center"})[0] == 200
     eng = live._load()
     assert eng.phase == "act"                     # the last submission resolved the move step
+
+
+def test_submission_for_a_step_that_already_resolved_is_409(game):
+    k = _key(game)
+    assert A.post_decision(0, k, {"move": "center", "round": 1, "phase": "act"})[0] == 409
+    assert A.post_decision(0, k, {"move": "center", "round": 2, "phase": "move"})[0] == 409
+    code, _ = A.post_decision(0, k, {"move": "center", "round": 1, "phase": "move"})
+    assert code == 200
+    d = json.load(open(f"{game.DECISION_DIR}/s0.json", encoding="utf-8"))
+    assert "round" not in d and "phase" not in d
+
+
+def test_all_human_game_starts_when_someone_opens_the_page(live):
+    live.cmd_init(_ns(human_seats="0,1,2,3,4,5"))
+    keys = live._load().humans
+    code, v = A.get_view(0, keys[0])
+    assert code == 200 and v["status"] == "your_turn"
+
+
+def test_view_shows_what_was_submitted(game):
+    k = _key(game)
+    A.post_decision(0, k, {"move": "water", "memo": "去水区"})
+    v = A.get_view(0, k)[1]
+    assert v["submitted"] == {"move": "water", "say": [], "memo": "去水区"}
+
+
+def test_reflection_after_game_over_reaches_the_record(game):
+    eng = game._load()
+    eng.state.players[0].alive = False
+    eng.phase = "over"
+    game._save(eng)
+    assert A.post_decision(0, _key(game), {"reflection": "结束后才写"})[0] == 200
+    assert game._load().reflections[0] == "结束后才写"

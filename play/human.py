@@ -33,6 +33,13 @@ def _has_decision(seat):
     return os.path.exists(f"{S.DECISION_DIR}/s{seat}.json")
 
 
+def _read_decision(seat):
+    try:
+        return json.load(open(f"{S.DECISION_DIR}/s{seat}.json", encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def _reflection_text(eng, seat):
     text = getattr(eng, "reflections", {}).get(seat)
     if text:
@@ -97,13 +104,13 @@ def human_view(eng, seat):
     st, p = eng.state, eng._p(seat)
     ph = getattr(eng, "phase", "start")
     status = _status(eng, seat)
-    blind = ph == "move" and st.round_no == 1
+    blind = st.round_no == 1 and ph in ("start", "move")   # nobody has picked a zone yet
     players = []
     for q in st.players:
         eq = q.equipped_weapon
         players.append({"seat": q.seat, "name": q.character.name, "hp": q.hp, "hp_max": q.character.hp_max,
                         "alive": q.alive,
-                        "zone": None if (blind and q.seat != seat) else S.NAME_BY_ZONE[q.zone],
+                        "zone": None if blind else S.NAME_BY_ZONE[q.zone],
                         "weapon": eq.name if eq else None, "weapon_value": eq.value if eq else 0})
     lover = None
     if p.identity == "Lovers":
@@ -111,7 +118,7 @@ def human_view(eng, seat):
     known = getattr(eng, "known_identities", {}).get(seat) or {}
     me = {"name": p.character.name, "hp": p.hp, "hp_max": p.character.hp_max,
           "base_attack": p.character.base_attack, "attack": S._atk(p),
-          "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": S.NAME_BY_ZONE[p.zone],
+          "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": None if blind else S.NAME_BY_ZONE[p.zone],
           "hand": [_card(c) for c in p.hand],
           "equipped": _card(p.equipped_weapon) if p.equipped_weapon else None,
           "identity": p.identity, "win_condition": fill_for(eng, seat, S.WIN_COND.get(p.identity, "")),
@@ -130,6 +137,7 @@ def human_view(eng, seat):
             "players": players, "me": me, "messages": messages, "events": events,
             "options": _options(eng, seat, ph) if status in ("your_turn", "submitted") else None,
             "brief": getattr(eng, "briefs", {}).get(seat, ""),
+            "submitted": _read_decision(seat) if status == "submitted" else None,
             "reflection": None, "result": None}
     if status == "dead":
         text = _reflection_text(eng, seat)

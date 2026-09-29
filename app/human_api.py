@@ -43,8 +43,11 @@ def _all_human(eng):
 def get_view(seat, key):
     with LOCK:
         eng = S._load()
-    if not _authorized(eng, seat, key):
-        return 403, {"error": "链接不对:座位号或口令不匹配"}
+        if not _authorized(eng, seat, key):
+            return 403, {"error": "链接不对:座位号或口令不匹配"}
+        if _all_human(eng) and getattr(eng, "phase", "start") == "start":
+            S.advance()                          # all-human game: the first visitor starts it
+            eng = S._load()
     return 200, H.human_view(eng, seat)
 
 
@@ -63,9 +66,15 @@ def post_decision(seat, key, body):
             _write(f"{S.HUMAN_DIR}/reflections/s{seat}.json", _clean(body, "reflect"))
             if _all_human(eng):
                 S.advance()
+            elif eng.phase == "over":            # the orchestrator is done: record it here
+                eng = S._load()
+                if S._absorb_human_reflections(eng):
+                    S._save(eng)
             return 200, {"ok": True}
-        if status not in ("your_turn", "submitted"):
-            return 409, {"error": "现在不需要你提交(这一步可能已经结算了),页面会自动刷新"}
+        stale = ("round" in body and body.get("round") != eng.state.round_no) or \
+                ("phase" in body and body.get("phase") != eng.phase)
+        if stale or status not in ("your_turn", "submitted"):
+            return 409, {"error": "这一步已经结算了,你的提交没有生效。页面已刷新,请看新的局面再决定。"}
         errs = H.validate_decision(eng, seat, eng.phase, body)
         if errs:
             return 400, {"errors": errs}

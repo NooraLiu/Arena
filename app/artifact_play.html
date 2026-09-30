@@ -107,21 +107,35 @@
   .roll-btn{font:inherit;font-weight:700;color:#fff;background:#8a5a12;border:1px solid var(--weapon);border-radius:10px;padding:8px 16px;cursor:pointer}
   .roll-btn:disabled{opacity:.5;cursor:default}
   .dmg{font-size:15px;font-weight:700;color:var(--win)}
-  .tray{position:relative;height:190px;max-width:440px;border-radius:16px;margin:8px 0;overflow:hidden;
-    background:radial-gradient(ellipse at 50% 40%,#2f6b4f 0%,#1d4a36 55%,#123224 100%);
-    box-shadow:inset 0 0 0 6px #5a3b22,inset 0 0 0 8px #3b2615,inset 0 10px 30px rgba(0,0,0,.45)}
-  .tray canvas{display:block}
+  /* dice stage: a dark arcane circle, the die floats and spins over it */
+  .tray{position:relative;height:260px;max-width:460px;border-radius:16px;margin:8px 0;overflow:hidden;
+    background:radial-gradient(ellipse at 50% 55%,#2a1850 0%,#140c28 45%,#07060d 100%);box-shadow:inset 0 0 0 1px #3a2a60,inset 0 0 40px rgba(0,0,0,.6)}
+  .tray canvas{display:block;position:relative;z-index:1}
+  .drings,.drings::before{position:absolute;left:50%;top:50%;border-radius:50%;pointer-events:none}
+  .drings{width:220px;height:220px;margin:-110px 0 0 -110px;border:1px solid rgba(243,201,105,.35);
+    background:repeating-conic-gradient(from 0deg,rgba(243,201,105,.55) 0 2deg,transparent 2deg 15deg);
+    -webkit-mask:radial-gradient(circle,transparent 98px,#000 99px,#000 106px,transparent 107px);mask:radial-gradient(circle,transparent 98px,#000 99px,#000 106px,transparent 107px);
+    animation:dspin 24s linear infinite}
+  .drings::before{content:"";width:160px;height:160px;margin:-80px 0 0 -80px;border:1px dashed rgba(157,107,255,.55);animation:dspin 16s linear infinite reverse}
+  @keyframes dspin{to{transform:rotate(360deg)}}
+  .dburst{position:absolute;left:50%;top:50%;width:320px;height:320px;margin:-160px 0 0 -160px;border-radius:50%;pointer-events:none;opacity:0;
+    background:radial-gradient(circle,rgba(255,226,150,.85) 0%,rgba(243,201,105,.35) 30%,rgba(157,107,255,0) 65%)}
+  .tray.revealed .dburst{animation:dburst .9s ease-out}
+  .tray.fumble .dburst{background:radial-gradient(circle,rgba(255,110,110,.8) 0%,rgba(200,40,40,.3) 30%,rgba(0,0,0,0) 65%)}
+  .tray.crit{box-shadow:inset 0 0 0 2px var(--win),inset 0 0 50px rgba(243,201,105,.35)}
+  @keyframes dburst{0%{opacity:0;transform:scale(.3)}25%{opacity:1}100%{opacity:0;transform:scale(1.25)}}
+  @media (prefers-reduced-motion: reduce){.drings,.drings::before{animation:none}}
   .tray-cap{position:absolute;left:14px;top:12px;font-size:12px;font-weight:700;color:#f4e6c4;background:rgba(0,0,0,.35);
     padding:2px 9px;border-radius:999px;letter-spacing:.04em}
   .tray .dice{height:100%;justify-content:center;align-items:center}
   .fxdmg{position:absolute;font:800 20px -apple-system,"PingFang SC",sans-serif;color:#ff5c5c;text-shadow:0 2px 0 #3a0000,0 0 10px rgba(255,60,60,.6);pointer-events:none}
   /* random-event animations play in a layer over the map, on the zones the event hit */
-  .mapwrap{position:relative}
+  .mapwrap{position:relative;padding-top:40px}
   #fx{position:absolute;inset:0;pointer-events:none}
   .fxbox{position:absolute;border-radius:12px;overflow:hidden}
   .fxbox .tint{position:absolute;inset:0}
   .fxbox .sp{position:absolute;font-size:26px;line-height:1;will-change:transform}
-  .fxbanner{position:absolute;left:50%;top:-6px;z-index:2;display:flex;gap:10px;align-items:center;white-space:nowrap;
+  .fxbanner{position:absolute;left:50%;top:2px;z-index:2;display:flex;gap:10px;align-items:center;white-space:nowrap;
     background:rgba(8,10,20,.9);color:#fff;font-size:13px;padding:6px 14px;border-radius:999px;border:1px solid var(--win);
     box-shadow:0 6px 20px rgba(0,0,0,.45)}
   .fxbanner span{color:var(--dim);font-size:12px}
@@ -220,60 +234,85 @@ function diceHTML(faces, n, values) {
   }).join("")}</div>`;
 }
 
-/* Real dice in a felt tray. Dice3D.mount(el, faces, n, values|null) draws them idle (spinning
-   gently, waiting for a roll) or resting on `values`; Dice3D.roll(el, faces, n, values) throws
-   them and resolves once they have landed on those faces. */
+/* Dice in the style of a big "moment" roll: one large gem-like die floats over an arcane circle,
+   spins hard in place, slows, wobbles and settles with the rolled face toward you, and the
+   number flares. Only real dice shapes: coin (d2), d4 (a pyramid read at the top corner), d6,
+   d8, d10, d12, d20. Rolls with no die of their own use the usual stand-ins: d3 = d6 marked
+   1-3 twice, d5 = d10 marked 1-5 twice, d7 = d8 (an 8 is thrown again, before the dice leave
+   your hand -- so the die simply never lands on 8).
+   Dice3D.show(el, faces, n, values|null) draws them idle or resting; Dice3D.roll(el, faces, n,
+   values) plays the roll and resolves when they have landed on `values`. */
 const Dice3D = (() => {
-  let current = null;                                   // one tray on screen at a time
+  let current = null;
   const has3D = () => typeof THREE !== "undefined" && (() => {
     try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
   })();
+  const GOLD = "#f3c969", GEM = ["#3b2466", "#1c1033"];
 
-  // physical die for an N-sided roll; labels go on `faces` of the solid, in order
-  function solidFor(faces) {
+  // which physical die a roll uses, and what is printed on it
+  function kind(faces) {
+    if (faces <= 2) return {shape: "coin", labels: [1, 2], name: "硬币 d2"};
+    if (faces === 3) return {shape: "d6", labels: [1, 3, 2, 2, 3, 1], name: "d3 · 六面骰印两遍 1–3"};
+    if (faces === 4) return {shape: "d4", labels: [1, 2, 3, 4], name: "d4"};
+    if (faces === 5) return {shape: "d10", labels: [1, 2, 3, 4, 5, 1, 2, 3, 4, 5], name: "d5 · 十面骰印两遍 1–5"};
+    if (faces === 6) return {shape: "d6", labels: [1, 6, 2, 5, 3, 4], name: "d6"};
+    if (faces === 7) return {shape: "d8", labels: [1, 8, 2, 7, 3, 6, 4, 5], name: "d7 · 八面骰,掷到 8 重掷"};
+    if (faces === 8) return {shape: "d8", labels: [1, 8, 2, 7, 3, 6, 4, 5], name: "d8"};
+    if (faces <= 10) return {shape: "d10", labels: Array.from({length: 10}, (_, i) => (i % faces) + 1), name: "d" + faces};
+    if (faces <= 12) return {shape: "d12", labels: Array.from({length: 12}, (_, i) => (i % faces) + 1), name: "d" + faces};
+    return {shape: "d20", labels: Array.from({length: 20}, (_, i) => (i % faces) + 1), name: "d" + faces};
+  }
+
+  function d10Geometry(r) {                            // pentagonal trapezohedron: 10 planar kites
+    const T = THREE, H = r, z = r * 0.1055728, pts = [];   // z solved so each kite is flat for apex height = r
+    const U = k => new T.Vector3(Math.cos(k * 2 * Math.PI / 5) * r, z, Math.sin(k * 2 * Math.PI / 5) * r);
+    const L = k => new T.Vector3(Math.cos((k + .5) * 2 * Math.PI / 5) * r, -z, Math.sin((k + .5) * 2 * Math.PI / 5) * r);
+    const top = new T.Vector3(0, H, 0), bot = new T.Vector3(0, -H, 0);
+    const quad = (a, b, c, d) => pts.push(a, b, c, a, c, d);
+    for (let k = 0; k < 5; k++) { quad(top, U(k + 1), L(k), U(k)); quad(bot, L(k), U(k + 1), L(k + 1)); }
+    const g = new T.BufferGeometry().setFromPoints(pts); g.computeVertexNormals(); return g;
+  }
+  function solid(shape) {
     const T = THREE;
-    if (faces <= 2) return {geo: new T.CylinderGeometry(1.05, 1.05, 0.2, 56), labels: [1, 2], coin: true, rest: 0.1};
-    if (faces === 3) return {geo: new T.BoxGeometry(1.3, 1.3, 1.3), labels: [1, 2, 3, 1, 2, 3], rest: 0.65};
-    if (faces === 4) return {geo: new T.TetrahedronGeometry(1.25), labels: [1, 2, 3, 4], rest: 0.42};
-    if (faces === 5) return {geo: new T.CylinderGeometry(0.95, 0.95, 1.25, 3), labels: [1, 2, 3, 4, 5], rest: 0.48};
-    if (faces === 6) return {geo: new T.BoxGeometry(1.3, 1.3, 1.3), labels: [1, 2, 3, 4, 5, 6], rest: 0.65};
-    if (faces === 7) return {geo: new T.CylinderGeometry(0.9, 0.9, 0.95, 5), labels: [1, 2, 3, 4, 5, 6, 7], rest: 0.48};
-    if (faces === 8) return {geo: new T.OctahedronGeometry(1.15), labels: [1, 2, 3, 4, 5, 6, 7, 8], rest: 0.66};
-    const geo = faces <= 12 ? new T.DodecahedronGeometry(1.05) : new T.IcosahedronGeometry(1.1);
-    return {geo, labels: Array.from({length: faces <= 12 ? 12 : 20}, (_, i) => (i % faces) + 1), rest: 0.84};
+    return {coin: () => new T.CylinderGeometry(1.25, 1.25, .22, 64), d4: () => new T.TetrahedronGeometry(1.45),
+            d6: () => new T.BoxGeometry(1.55, 1.55, 1.55), d8: () => new T.OctahedronGeometry(1.35),
+            d10: () => d10Geometry(1.25), d12: () => new T.DodecahedronGeometry(1.3), d20: () => new T.IcosahedronGeometry(1.35)}[shape]();
   }
 
-  function faceTexture(label, sides, coin) {
-    const c = document.createElement("canvas"); c.width = c.height = 256;
-    const g = c.getContext("2d");
+  // a face's picture: gem ground, engraved gold numerals; `marks` = [{text, x, y, rot, size}] in 0..256
+  function faceTextures(marks, coin) {
+    const mk = () => { const c = document.createElement("canvas"); c.width = c.height = 256; return [c, c.getContext("2d")]; };
+    const [c, g] = mk(), [e, ge] = mk();
     if (coin) {
-      const grd = g.createRadialGradient(110, 100, 20, 128, 128, 140);
-      grd.addColorStop(0, "#ffe9a8"); grd.addColorStop(.6, "#e0b24a"); grd.addColorStop(1, "#9c6f1e");
+      const grd = g.createRadialGradient(100, 90, 10, 128, 128, 150);
+      grd.addColorStop(0, "#fff0b8"); grd.addColorStop(.55, "#d9a43e"); grd.addColorStop(1, "#7d5310");
       g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
-      g.strokeStyle = "rgba(90,60,10,.55)"; g.lineWidth = 7; g.beginPath(); g.arc(128, 128, 104, 0, 7); g.stroke();
-      g.strokeStyle = "rgba(255,245,210,.5)"; g.lineWidth = 2; g.beginPath(); g.arc(128, 128, 92, 0, 7); g.stroke();
-      g.fillStyle = "#5a3a08";
+      for (const [rad, col, lw] of [[110, "rgba(90,58,8,.7)", 6], [96, "rgba(255,240,200,.55)", 2]]) { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.arc(128, 128, rad, 0, 7); g.stroke(); }
     } else {
-      const grd = g.createLinearGradient(0, 0, 256, 256);
-      grd.addColorStop(0, "#fbf5e6"); grd.addColorStop(1, "#e9dcc0");
+      const grd = g.createRadialGradient(95, 80, 10, 128, 128, 170);
+      grd.addColorStop(0, "#5a3a92"); grd.addColorStop(.6, GEM[0]); grd.addColorStop(1, GEM[1]);
       g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
-      g.fillStyle = "#8e1d24";
+      g.globalAlpha = .12; for (let i = 0; i < 40; i++) { g.fillStyle = i % 2 ? "#b58cff" : "#000"; g.beginPath(); g.arc(Math.random() * 256, Math.random() * 256, Math.random() * 18, 0, 7); g.fill(); }
+      g.globalAlpha = 1;
     }
-    const size = coin ? 120 : sides === 3 ? 92 : sides === 4 ? 128 : 112;
-    const y = sides === 3 ? 150 : 132;                  // triangles: sit the number a bit low, in the fat part
-    g.font = `800 ${size}px Georgia, "Times New Roman", serif`;
-    g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(String(label), 128, y);
-    if (label === 6 || label === 9) { const w = g.measureText(String(label)).width; g.fillRect(128 - w / 2, y + size * .42, w, size * .07); }
-    const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4; tex.encoding = THREE.sRGBEncoding;
-    return tex;
+    ge.fillStyle = "#000"; ge.fillRect(0, 0, 256, 256);
+    marks.forEach(m => {
+      for (const [ctx, fill, stroke] of [[g, coin ? "#5a3806" : GOLD, coin ? "rgba(255,240,200,.5)" : "rgba(20,8,40,.9)"], [ge, "#fff", null]]) {
+        ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.rot || 0);
+        ctx.font = `700 ${m.size}px "Cinzel","Trajan Pro",Georgia,"Times New Roman",serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        if (stroke) { ctx.lineWidth = m.size * .09; ctx.strokeStyle = stroke; ctx.strokeText(m.text, 0, 0); }
+        ctx.fillStyle = fill; ctx.fillText(m.text, 0, 0);
+        if (m.text === "6" || m.text === "9") { const w = ctx.measureText(m.text).width; ctx.fillRect(-w / 2, m.size * .42, w, m.size * .07); }
+        ctx.restore();
+      }
+    });
+    const tex = t => { const x = new THREE.CanvasTexture(t); x.anisotropy = 4; x.encoding = THREE.sRGBEncoding; return x; };
+    return {map: tex(c), emissiveMap: tex(e)};
   }
 
-  // group a solid's triangles into its flat faces, give each numbered face its own texture
   function buildDie(faces) {
-    const T = THREE, spec = solidFor(faces);
-    const src = spec.geo.toNonIndexed(), P = src.attributes.position;
-    const tris = [], groups = new Map();
+    const T = THREE, K = kind(faces), coin = K.shape === "coin";
+    const src = solid(K.shape).toNonIndexed(), P = src.attributes.position, groups = new Map();
     for (let i = 0; i < P.count; i += 3) {
       const p = [0, 1, 2].map(k => new T.Vector3().fromBufferAttribute(P, i + k));
       const n = new T.Vector3().subVectors(p[1], p[0]).cross(new T.Vector3().subVectors(p[2], p[0])).normalize();
@@ -281,140 +320,193 @@ const Dice3D = (() => {
       if (!groups.has(key)) groups.set(key, {n, tris: []});
       groups.get(key).tris.push(p);
     }
-    let faceList = [...groups.values()];
-    if (spec.coin) faceList.sort((f1, f2) => Math.abs(f2.n.y) - Math.abs(f1.n.y));   // the two caps first
-    const pos = [], uv = [], bodyMat = new T.MeshStandardMaterial({color: spec.coin ? 0xc99a36 : 0xe8d9b8, roughness: .5, metalness: spec.coin ? .55 : .04});
-    const mats = [bodyMat], geo = new T.BufferGeometry(), numbered = [];
-    let vi = 0;
-    faceList.forEach((f, fi) => {
+    let list = [...groups.values()];
+    if (coin) list.sort((f1, f2) => Math.abs(f2.n.y) - Math.abs(f1.n.y));        // the two caps first
+    else {                                                                         // opposite faces get paired labels
+      const ordered = [];
+      list.forEach(f => { if (ordered.includes(f)) return; const o = list.find(g => g !== f && !ordered.includes(g) && g.n.dot(f.n) < -.99); ordered.push(f); if (o) ordered.push(o); });
+      list = ordered;
+    }
+    const faceInfo = list.map(f => {
       const verts = []; f.tris.flat().forEach(v => { if (!verts.some(w => w.distanceTo(v) < 1e-4)) verts.push(v); });
       const c = verts.reduce((s, v) => s.add(v), new T.Vector3()).multiplyScalar(1 / verts.length);
       const a = new T.Vector3().subVectors(verts[0], c); a.sub(f.n.clone().multiplyScalar(a.dot(f.n))).normalize();
-      const b = new T.Vector3().crossVectors(f.n, a);
-      const R = Math.max(...verts.map(v => v.distanceTo(c)));
-      const label = fi < spec.labels.length ? spec.labels[fi] : null;
-      if (label !== null) { mats.push(new T.MeshStandardMaterial({map: faceTexture(label, verts.length, spec.coin), roughness: .45, metalness: spec.coin ? .5 : .02}));
-                            numbered.push({n: f.n.clone(), a, b, label}); }
+      return {f, verts, c, a, b: new T.Vector3().crossVectors(f.n, a), R: Math.max(...verts.map(v => v.distanceTo(c)))};
+    });
+    const uvOf = (fi, v) => { const d = new T.Vector3().subVectors(v, fi.c); return [.5 + d.dot(fi.a) / (2.05 * fi.R), .5 + d.dot(fi.b) / (2.05 * fi.R)]; };
+    // d4 is read at the corner that points up: every face carries its three corners' numbers
+    const corners = K.shape === "d4" ? [] : null;
+    if (corners) faceInfo.forEach(fi => fi.verts.forEach(v => { if (!corners.some(c => c.v.distanceTo(v) < 1e-4)) corners.push({v: v.clone(), label: K.labels[corners.length]}); }));
+    const body = coin ? new T.MeshStandardMaterial({color: 0xc99a36, metalness: .85, roughness: .3})
+                      : new T.MeshPhysicalMaterial({color: 0x2c1a4d, metalness: .1, roughness: .22, clearcoat: 1, clearcoatRoughness: .08});
+    const mats = [body], pos = [], uv = [], geo = new T.BufferGeometry(), numbered = [];
+    let vi = 0;
+    faceInfo.forEach((fi, idx) => {
+      let marks = null, label = null;
+      if (corners) {
+        marks = fi.verts.map(v => { const [u, w] = uvOf(fi, v), [cu, cw] = [.5, .5];
+          const x = (cu + (u - cu) * .58) * 256, y = (1 - (cw + (w - cw) * .58)) * 256, dx = (u - cu) * 256, dy = -(w - cw) * 256;
+          return {text: String(corners.find(c => c.v.distanceTo(v) < 1e-4).label), x, y, rot: Math.atan2(dx, -dy), size: 58}; });
+      } else if (idx < K.labels.length) {
+        label = K.labels[idx];
+        const n = fi.verts.length, size = coin ? 130 : n === 3 ? (K.shape === "d20" ? 84 : 100) : n === 4 && K.shape === "d10" ? 66 : n === 4 ? 128 : 104;
+        marks = [{text: String(label), x: 128, y: 132, size}];
+      }
+      if (marks) { const tx = faceTextures(marks, coin);
+        mats.push(coin ? new T.MeshStandardMaterial({map: tx.map, metalness: .75, roughness: .32, emissive: 0x3a2400, emissiveMap: tx.emissiveMap, emissiveIntensity: .4})
+                       : new T.MeshPhysicalMaterial({map: tx.map, metalness: .1, roughness: .22, clearcoat: 1, clearcoatRoughness: .08,
+                                                      emissive: new T.Color(GOLD), emissiveMap: tx.emissiveMap, emissiveIntensity: .55})); }
+      if (label !== null) numbered.push({n: fi.f.n.clone(), a: fi.a, b: fi.b, label});
       const start = vi;
-      f.tris.forEach(tri => tri.forEach(v => {
-        pos.push(v.x, v.y, v.z);
-        const d = new T.Vector3().subVectors(v, c);
-        uv.push(.5 + d.dot(a) / (2.05 * R), .5 + d.dot(b) / (2.05 * R)); vi++;
-      }));
-      geo.addGroup(start, vi - start, label === null ? 0 : mats.length - 1);
+      fi.f.tris.forEach(tri => tri.forEach(v => { pos.push(v.x, v.y, v.z); uv.push(...uvOf(fi, v)); vi++; }));
+      geo.addGroup(start, vi - start, marks ? mats.length - 1 : 0);
     });
     geo.setAttribute("position", new T.Float32BufferAttribute(pos, 3));
     geo.setAttribute("uv", new T.Float32BufferAttribute(uv, 2));
     geo.computeVertexNormals();
     const mesh = new T.Mesh(geo, mats);
-    mesh.add(new T.LineSegments(new T.EdgesGeometry(geo, 25), new T.LineBasicMaterial({color: spec.coin ? 0x7a5412 : 0xb8a37c})));
-    return {mesh, numbered, rest: spec.rest, coin: !!spec.coin};
+    mesh.add(new T.LineSegments(new T.EdgesGeometry(geo, 25), new T.LineBasicMaterial({color: coin ? 0x7a5412 : 0xd9ad55, transparent: true, opacity: .75})));
+    // resting frames: for most dice a face turned toward you; for the d4, a corner pointing up
+    const rests = corners ? corners.map(c => {
+      const n = c.v.clone().normalize();
+      const fc = faceInfo.find(fi => fi.verts.some(v => v.distanceTo(c.v) < 1e-4)).c.clone();
+      const b = fc.sub(n.clone().multiplyScalar(fc.dot(n))).normalize().negate();
+      return {n, a: new T.Vector3().crossVectors(b, n), b, label: c.label, corner: true};
+    }) : numbered;
+    return {mesh, rests, coin, mats, name: K.name, shape: K.shape};
   }
 
-  function shadowTexture() {
-    const c = document.createElement("canvas"); c.width = c.height = 128;
-    const g = c.getContext("2d"), grd = g.createRadialGradient(64, 64, 4, 64, 64, 62);
-    grd.addColorStop(0, "rgba(0,0,0,.55)"); grd.addColorStop(1, "rgba(0,0,0,0)");
-    g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
-    return new THREE.CanvasTexture(c);
-  }
-
-  // rotation that turns face `f` toward the camera, text upright
-  function restingQuat(f, dir, up) {
+  function orient(f, dir, up) {                        // rotation taking frame f to (dir, up)
     const T = THREE, z = dir.clone().normalize();
     const y = up.clone().sub(z.clone().multiplyScalar(up.dot(z))).normalize(), x = new T.Vector3().crossVectors(y, z);
-    const world = new T.Matrix4().makeBasis(x, y, z), local = new T.Matrix4().makeBasis(f.a, f.b, f.n).transpose();
-    return new T.Quaternion().setFromRotationMatrix(world.multiply(local));
+    return new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(x, y, z).multiply(new T.Matrix4().makeBasis(f.a, f.b, f.n).transpose()));
   }
+  const spriteTex = () => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32); grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(.3, "rgba(255,220,140,.8)"); grd.addColorStop(1, "rgba(255,200,100,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); };
 
   function mount(el, faces, n, values, rolling) {
     if (current) current.dispose();
+    el.classList.add("dstage"); el.classList.remove("revealed", "crit", "fumble");
     if (!has3D()) { el.innerHTML = diceHTML(faces, n, values); return null; }
-    const T = THREE, w = el.clientWidth || 320, h = el.clientHeight || 190;
+    const T = THREE, w = el.clientWidth || 360, h = el.clientHeight || 260;
     const renderer = new T.WebGLRenderer({antialias: true, alpha: true});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h);
-    renderer.outputEncoding = T.sRGBEncoding;
-    el.innerHTML = ""; el.appendChild(renderer.domElement);
-    const cap = document.createElement("div"); cap.className = "tray-cap";
-    cap.textContent = (faces <= 2 ? "硬币 d2" : "d" + faces) + (n > 1 ? ` × ${n},取大` : ""); el.appendChild(cap);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h); renderer.outputEncoding = T.sRGBEncoding;
+    el.innerHTML = `<div class="drings"></div><div class="dburst"></div>`; el.appendChild(renderer.domElement);
     const scene = new T.Scene(), camera = new T.PerspectiveCamera(30, w / h, .1, 100);
-    camera.position.set(0, 5.6, 5.2); camera.lookAt(0, .75, .55);
-    scene.add(new T.HemisphereLight(0xfff1dc, 0x1f3a2c, .55));
-    const key = new T.DirectionalLight(0xfff6ea, .62); key.position.set(-2.5, 7, 3.5); scene.add(key);
-    const fill = new T.DirectionalLight(0xffe2b8, .32); fill.position.set(4, 2.5, 2); scene.add(fill);
-    const rim = new T.DirectionalLight(0xbfe3ff, .25); rim.position.set(-4, 3, -5); scene.add(rim);
-    const shadowTex = shadowTexture(), spread = n > 1 ? 1.6 : 0, dice = [];
+    camera.position.set(0, .7, 8.2); camera.lookAt(0, 0, 0);
+    scene.add(new T.HemisphereLight(0xe8e0ff, 0x1a0f2e, .6));
+    const key = new T.DirectionalLight(0xffffff, .9); key.position.set(-3, 5, 6); scene.add(key);
+    const rim1 = new T.PointLight(0x9d6bff, 1.4, 20); rim1.position.set(4, 1, -2); scene.add(rim1);
+    const rim2 = new T.PointLight(0x47d7ff, .9, 20); rim2.position.set(-4, -2, -1); scene.add(rim2);
+    const glint = new T.PointLight(0xffd580, 0, 12); scene.add(glint);                 // a moving highlight while spinning
+    const dice = [], scale = n > 1 ? .84 : 1, gap = 2.7;
     for (let i = 0; i < n; i++) {
-      const d = buildDie(faces);
-      const shadow = new T.Mesh(new T.PlaneGeometry(2.2, 2.2), new T.MeshBasicMaterial({map: shadowTex, transparent: true, depthWrite: false}));
-      shadow.rotation.x = -Math.PI / 2; shadow.position.y = .001;
-      scene.add(d.mesh); scene.add(shadow);
-      d.shadow = shadow; d.home = new T.Vector3((i - (n - 1) / 2) * spread * 1.25, d.rest, .35);
-      d.mesh.position.copy(d.home);
-      d.idleAxis = new T.Vector3(Math.random() - .5, 1, Math.random() - .5).normalize();
-      d.yaw = (Math.random() - .5) * .6;
-      d.mesh.quaternion.setFromAxisAngle(new T.Vector3(1, .3, .2).normalize(), Math.random() * 6);
-      dice.push(d);
+      const d = buildDie(faces); d.mesh.scale.setScalar(scale);
+      d.home = new T.Vector3((i - (n - 1) / 2) * gap, 0, 0); d.mesh.position.copy(d.home);
+      d.idleAxis = new T.Vector3(Math.random() - .5, 1, Math.random() * .4).normalize();
+      d.mesh.quaternion.setFromEuler(new T.Euler(Math.random() * 6, Math.random() * 6, 0));
+      scene.add(d.mesh); dice.push(d);
     }
-    const dir = i => new T.Vector3().subVectors(camera.position, dice[i].home);
-    const settle = (d, i, v) => {
-      const f = d.numbered.find(x => x.label === v) || d.numbered[0];
-      const q = restingQuat(f, new T.Vector3(0, 1, 0).lerp(dir(i).normalize(), d.coin ? .3 : .45), new T.Vector3(0, 0, -1));
-      return new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), d.yaw).multiply(q);   // a little twist, like a real throw
+    const cap = document.createElement("div"); cap.className = "tray-cap"; cap.textContent = dice[0].name + (n > 1 ? ` × ${n},取大` : ""); el.appendChild(cap);
+    // sparks that orbit during the spin and burst out on landing
+    const NP = 90, sp = new Float32Array(NP * 3), seeds = Array.from({length: NP}, () => ({r: 1.6 + Math.random() * 1.2, a: Math.random() * 6.3, y: (Math.random() - .5) * 2.4, s: 2 + Math.random() * 3}));
+    const pg = new T.BufferGeometry(); pg.setAttribute("position", new T.BufferAttribute(sp, 3));
+    const pm = new T.PointsMaterial({size: .22, map: spriteTex(), transparent: true, depthWrite: false, blending: T.AdditiveBlending, opacity: 0, color: 0xffd98a});
+    const sparks = new T.Points(pg, pm); scene.add(sparks);
+    const landing = (d, v) => {
+      const f = d.rests.find(x => x.label === v) || d.rests[0];
+      if (f.corner) {                                  // apex up, turned so two faces show
+        const apex = new T.Vector3(0, 1, .3).normalize();
+        return new T.Quaternion().setFromAxisAngle(apex, Math.PI / 3.2).multiply(orient(f, apex, new T.Vector3(0, 0, -1)));
+      }
+      const view = d.shape === "d10" ? new T.Vector3(.1, .16, 1) : new T.Vector3(.32, .36, 1);   // three-quarter view (d10: kites are narrow)
+      return orient(f, view, new T.Vector3(0, 1, 0));
     };
     let raf = 0, dead = false;
     const draw = () => renderer.render(scene, camera);
-    const placeShadow = d => { const up = Math.max(0, d.mesh.position.y - d.rest); d.shadow.position.set(d.mesh.position.x, .001, d.mesh.position.z);
-                               const s = 1 + up * .35; d.shadow.scale.set(s, s, 1); d.shadow.material.opacity = Math.max(.15, .9 - up * .25); };
+    const setGlow = (d, k) => d.mats.forEach((m, j) => { if (j && m.emissiveMap) m.emissiveIntensity = k; });
+    const placeSparks = (t, spread, fade) => { seeds.forEach((s, i) => { const a = s.a + t * s.s, r = s.r * spread;
+      sp[i * 3] = Math.cos(a) * r; sp[i * 3 + 1] = s.y * spread * .6 + Math.sin(t * 3 + i) * .1; sp[i * 3 + 2] = Math.sin(a) * r * .6; });
+      pg.attributes.position.needsUpdate = true; pm.opacity = fade; };
     const handle = {
       dispose() { dead = true; cancelAnimationFrame(raf); renderer.dispose(); if (current === handle) current = null; },
-      rest(vals) { cancelAnimationFrame(raf); dice.forEach((d, i) => { d.mesh.position.copy(d.home); d.mesh.quaternion.copy(settle(d, i, vals[i])); placeShadow(d); }); draw(); },
+      rest(vals) {
+        cancelAnimationFrame(raf); pm.opacity = 0;
+        const best = Math.max(...vals);
+        dice.forEach((d, i) => { d.mesh.position.copy(d.home); d.mesh.quaternion.copy(landing(d, vals[i]));
+          const dim = n > 1 && vals[i] !== best || (n > 1 && vals.indexOf(best) !== i);
+          d.mesh.scale.setScalar(scale * (dim ? .86 : 1)); setGlow(d, dim ? .25 : 1.1); });
+        draw();
+      },
       idle() {
         const t0 = performance.now();
         const loop = now => { if (dead) return; const t = (now - t0) / 1000;
-          dice.forEach(d => { d.mesh.position.y = d.home.y + .12 + Math.sin(t * 2.2) * .08;
-            d.mesh.quaternion.multiply(new T.Quaternion().setFromAxisAngle(d.idleAxis, .012)); placeShadow(d); });
-          draw(); raf = requestAnimationFrame(loop); };
+          dice.forEach((d, i) => { d.mesh.position.y = d.home.y + Math.sin(t * 1.8 + i) * .12;
+            d.mesh.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(d.idleAxis, .008)); setGlow(d, .45 + Math.sin(t * 2.4) * .15); });
+          placeSparks(t * .3, 1, .35); draw(); raf = requestAnimationFrame(loop); };
         raf = requestAnimationFrame(loop);
       },
       roll(vals) {
         cancelAnimationFrame(raf);
-        if (REDUCED()) { handle.rest(vals); return Promise.resolve(); }
+        if (REDUCED()) { handle.rest(vals); el.classList.add("revealed"); return Promise.resolve(); }
         return new Promise(done => {
-          const D = 1700, t0 = performance.now();
-          const plan = dice.map((d, i) => ({
-            from: new T.Vector3(-4.2 + i * .6, 2.6 + i * .4, 2.4 - i * .5),
-            axis: new T.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize(),
-            spin: 16 + Math.random() * 8, q0: d.mesh.quaternion.clone(), qEnd: settle(d, i, vals[i]),
-          }));
+          const D = 2100, SPIN = .68, t0 = performance.now(), best = Math.max(...vals);
+          const plan = dice.map((d, i) => ({axis: new T.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize(),
+            axis2: new T.Vector3(Math.random() - .5, 1, Math.random() - .5).normalize(), turns: 26 + Math.random() * 8,
+            q0: d.mesh.quaternion.clone(), qEnd: landing(d, vals[i]), wob: new T.Vector3(1, Math.random() - .5, 0).normalize(), qA: null}));
           const loop = now => {
             if (dead) return done();
             const t = Math.min(1, (now - t0) / D);
             dice.forEach((d, i) => {
-              const p = plan[i], e = 1 - Math.pow(1 - t, 3);
-              d.mesh.position.lerpVectors(p.from, d.home, e);
-              const bounce = Math.abs(Math.sin(t * Math.PI * 3.1)) * Math.pow(1 - t, 2.2) * 2.4;
-              d.mesh.position.y = d.home.y + bounce * (d.coin ? 1.5 : 1);
-              const spun = p.q0.clone().multiply(new T.Quaternion().setFromAxisAngle(p.axis, p.spin * (1 - Math.pow(1 - t, 2))));
-              const k = Math.min(1, Math.max(0, (t - .5) / .5)), s = k * k * (3 - 2 * k);
-              d.mesh.quaternion.copy(spun.slerp(p.qEnd, s));
-              placeShadow(d);
+              const p = plan[i];
+              if (t < SPIN) {                            // hard spin, slowing down, rising a little
+                const k = t / SPIN, ang = p.turns * (1 - Math.pow(1 - k, 2.4));
+                d.mesh.quaternion.copy(p.q0).premultiply(new T.Quaternion().setFromAxisAngle(p.axis, ang))
+                  .premultiply(new T.Quaternion().setFromAxisAngle(p.axis2, Math.sin(k * 9) * .6));
+                d.mesh.position.y = d.home.y + Math.sin(Math.min(1, k * 1.6) * Math.PI) * .45;
+                const s = scale * (1 + Math.sin(Math.min(1, k * 4) * Math.PI) * .08); d.mesh.scale.setScalar(s);
+                setGlow(d, .5 + k * .4); p.qA = d.mesh.quaternion.clone();
+              } else {                                   // settle toward the face with an overshoot, then a damped wobble
+                const k = (t - SPIN) / (1 - SPIN), c1 = 1.9, back = 1 + (c1 + 1) * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
+                const q = p.qA.clone().slerp(p.qEnd, Math.min(1, k * 1.25));
+                const wob = Math.exp(-7 * k) * Math.cos(k * 26) * .22;
+                q.premultiply(new T.Quaternion().setFromAxisAngle(p.wob, wob));
+                d.mesh.quaternion.copy(q);
+                d.mesh.position.y = d.home.y + (1 - back) * .15;
+                d.mesh.scale.setScalar(scale);
+              }
             });
+            glint.intensity = t < SPIN ? 2.2 : 2.2 * (1 - (t - SPIN) / (1 - SPIN));
+            glint.position.set(Math.cos(t * 30) * 3, 1.5, Math.sin(t * 30) * 3 + 2);
+            placeSparks(t * 4, 1 + (t > .9 ? (t - .9) * 8 : 0), t < .1 ? t * 8 : t > .92 ? (1 - t) * 12 : .9);
             draw();
-            if (t < 1) raf = requestAnimationFrame(loop); else { handle.rest(vals); done(); }
+            if (t < 1) raf = requestAnimationFrame(loop);
+            else {
+              handle.rest(vals);
+              el.classList.add("revealed");
+              if (best === faces) el.classList.add("crit"); else if (best === 1) el.classList.add("fumble");
+              const d0 = dice[vals.indexOf(best)], t1 = performance.now();   // the landed number flares, then calms
+              const flare = now2 => { if (dead) return; const k = Math.min(1, (now2 - t1) / 700);
+                setGlow(d0, 1.1 + 2.4 * Math.exp(-5 * k)); d0.mesh.scale.setScalar(scale * (1 + .12 * Math.exp(-6 * k) * Math.cos(k * 14))); draw();
+                if (k < 1) raf = requestAnimationFrame(flare); };
+              raf = requestAnimationFrame(flare);
+              done();
+            }
           };
           raf = requestAnimationFrame(loop);
         });
       },
     };
     current = handle;
-    if (values) handle.rest(values); else if (!rolling) handle.idle();
+    if (values) { handle.rest(values); el.classList.add("revealed"); } else if (!rolling) handle.idle();
     return handle;
   }
 
   return {
     available: has3D,
     release() { if (current) current.dispose(); },
+    name: f => kind(f).name,
     show(el, faces, n, values) { return mount(el, faces, n, values, false); },
     roll(el, faces, n, values) {
       const hd = mount(el, faces, n, null, true);

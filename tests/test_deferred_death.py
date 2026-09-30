@@ -64,5 +64,5 @@ def test_downed_player_eats_food_to_survive():
     asyncio.run(eng.action_phase())
     eng.resolve_deaths()
     assert dfn.alive is True                # healed above 0 on its turn
-    assert dfn.hp == 2                       # 1 - 1(dmg) + 2(food) = 2
+    assert dfn.hp == 1                       # 1 - 1(dmg) + 2(food), capped at max HP 1
     assert food not in dfn.hand              # food consumed

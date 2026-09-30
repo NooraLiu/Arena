@@ -97,3 +97,26 @@ def test_only_mira_can_feed():
     eng = _engine([x, ally])
     eng._apply_additional(x, FeedFood(1))
     assert ally.hp == 4
+
+
+# ---- healing never goes past max HP, and never lowers HP ----
+def test_feeding_stops_at_max_hp():
+    mira, ally = _p(0, "Mira", Zone.N, hand=[_food("f", 3)]), _p(1, "A", Zone.N, hp=8)
+    eng = _engine([mira, ally])
+    eng._apply_additional(mira, FeedFood(1, "f"))
+    assert ally.hp == 10                                  # 8 + 3 + 2 would be 13
+
+
+def test_eating_stops_at_max_hp():
+    p = _p(0, "A", Zone.N, hp=4, hand=[_food("f", 9)])
+    eng = _engine([p])
+    eng._eat_one_food(p)
+    assert p.hp == 10
+
+
+def test_feast_heal_never_lowers_hp():
+    p = _p(0, "A", Zone.CENTER, hp=12)                    # already above max (e.g. an old save)
+    eng = _engine([p])
+    eng.state.feast_active = True
+    eng._feast(p)
+    assert p.hp == 12

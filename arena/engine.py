@@ -107,6 +107,11 @@ class Engine:
         self._feast(p)
         enforce_hand_limit(p, self._skill(p).hand_limit(p))
 
+    @staticmethod
+    def _heal(p: PlayerState, amount: int):
+        """Restore HP up to the character's max; healing never lowers HP."""
+        p.hp = max(p.hp, min(p.character.hp_max, p.hp + amount))
+
     def _feast(self, p: PlayerState):
         """The Feast, for someone in the center while it is active: bonus center draws, or,
         once the center deck is empty, a heal instead (never above max HP)."""
@@ -117,7 +122,7 @@ class Engine:
                 self._draw_one(p)
             return
         before = p.hp
-        p.hp = min(p.character.hp_max, p.hp + config.EVENT_FEAST_HEAL)
+        self._heal(p, config.EVENT_FEAST_HEAL)
         self.log.record(Event("feast_heal", self.state.round_no, p.seat, "public",
                                {"from": before, "hp": p.hp}))
 
@@ -258,7 +263,7 @@ class Engine:
             if target is None or food is None:
                 return
             p.hand.remove(food)
-            target.hp += food.value + skill.feed_bonus()
+            self._heal(target, food.value + skill.feed_bonus())
             self.log.record(Event("feed", self.state.round_no, p.seat, "public",
                                    {"to": target.seat, "food": food.id, "hp": target.hp}))
 
@@ -428,7 +433,7 @@ class Engine:
         if food is None:
             return False
         p.hand.remove(food)
-        p.hp += food.value
+        self._heal(p, food.value)
         self.log.record(Event("heal", self.state.round_no, p.seat, "public",
                                {"food": food.id, "hp": p.hp}))
         return True

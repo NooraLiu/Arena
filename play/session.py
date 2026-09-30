@@ -86,6 +86,7 @@ def cmd_init(args):
     eng.styles = {p.seat: st for p, st in zip(eng.state.players, styles)}
     guide = zone_guide(eng.state.decks)                      # counted from the fresh decks
     eng.briefs = {p.seat: _brief(eng, p.seat, guide, eng.styles[p.seat], table) for p in eng.state.players}
+    eng.card_names = {c.id: c.name for cards in eng.state.decks.values() for c in cards}
     eng.humans = _pick_humans(n, getattr(args, "human_seats", None), getattr(args, "humans", 0) or 0, rng)
     eng.phase = "start"
     eng.game_over = False

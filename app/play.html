@@ -60,7 +60,9 @@
       <div class="panel" id="resultPanel" style="display:none"><h3>对局结果</h3><div id="result"></div></div>
     </div>
     <div>
-      <div class="panel"><h3>我</h3><div id="me"></div></div>
+      <div class="panel"><h3>角色介绍</h3><div id="me"></div></div>
+      <div class="panel"><h3>秘密身份</h3><div id="ident"></div></div>
+      <div class="panel"><h3>我的最近动作</h3><div id="acts" class="scroll"></div></div>
       <div class="panel"><h3>消息</h3><div id="msgs" class="scroll"></div></div>
       <div class="panel"><h3>公开事件</h3><div id="events" class="scroll"></div></div>
       <div class="panel"><details><summary>规则与我的开局简报</summary><pre id="brief"></pre></details></div>
@@ -77,7 +79,7 @@ const STATUS = {your_turn:"轮到你了",submitted:"已提交,等待其他人",w
 let V = null, SIG = "", EDITING = false;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const nm = (s) => { const p = V.players.find(p => p.seat === +s); return p ? `s${p.seat} ${p.name}` : `s${s}`; };
+const nm = (s) => { const p = V.players.find(p => p.seat === +s); return esc(p ? `s${p.seat} ${p.name}` : `s${s}`); };
 
 async function poll() {
   try {
@@ -100,7 +102,7 @@ function render(stepChanged) {
   $("status").textContent = STATUS[V.status] || V.status;
   $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
   const extra = [V.feast_active ? "盛宴生效中" : "", V.feast_next ? "下回合盛宴" : "", V.frozen.length ? "沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean);
-  $("zones").textContent = "剩余牌:" + Object.entries(V.deck_left).map(([z, n]) => `${ZN[z]} ${n}`).join(" · ") + (extra.length ? " · " + extra.join(" · ") : "");
+  $("zones").textContent = extra.join(" · ");
   renderMap(); renderMe(); renderMsgs();
   $("brief").textContent = V.brief;
   if (stepChanged || !EDITING) renderForm();
@@ -112,7 +114,9 @@ function renderMap() {
     const here = V.players.filter(p => p.zone === z);
     const closed = !V.open_zones.includes(z);
     const toks = here.map(p => `<span class="tok ${p.seat === V.seat ? "me" : ""} ${p.alive ? "" : "dead"}">s${p.seat} ${esc(p.name)} ${p.hp}/${p.hp_max}${p.weapon ? " · " + esc(p.weapon) + "+" + p.weapon_value : ""}</span>`).join("");
-    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""}"><div class="zt">${ZN[z]}${closed ? "(已关闭)" : ""}</div>${toks}</div>`;
+    const left = V.deck_left[z] ?? 0;
+    const tag = closed ? "(已关闭)" : ` · 剩 <b style="color:${left ? "var(--ink)" : "var(--hit)"}">${left}</b> 张`;
+    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""}"><div class="zt">${ZN[z]}${tag}</div>${toks}</div>`;
   }).join("");
   const unknown = V.players.filter(p => p.zone === null);
   if (unknown.length) $("map").insertAdjacentHTML("beforeend", `<div class="k" style="grid-column:1/4">位置未知(第一回合同时暗选):${unknown.map(p => "s" + p.seat + " " + esc(p.name)).join("、")}</div>`);
@@ -120,19 +124,22 @@ function renderMap() {
 
 function renderMe() {
   const m = V.me;
-  const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
   $("me").innerHTML = `
+    <div class="row big">s${V.seat} ${esc(m.name)}</div>
     <div class="row">${m.hp}/${m.hp_max} 血 · 攻击 ${m.base_attack}+武器 = ${m.attack} · ${m.zone ? "在 " + ZN[m.zone] : "位置未定"}</div>
     <div class="row"><span class="k">技能</span> ${esc(m.skill)}</div>
     <div class="row"><span class="k">装备</span> ${m.equipped ? `<span class="card">${esc(m.equipped.label)}</span>` : "无"}</div>
-    <div class="row"><span class="k">手牌</span> ${m.hand.map(c => `<span class="card">${esc(c.label)}</span>`).join("") || "无"}</div>
-    <div class="row big">秘密身份:${esc(m.identity)}</div>
+    <div class="row"><span class="k">手牌</span> ${m.hand.map(c => `<span class="card">${esc(c.label)}</span>`).join("") || "无"}</div>`;
+  const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
+  $("ident").innerHTML = `
+    <div class="row big">${esc(m.identity)}</div>
     <div class="row"><span class="k">胜利条件</span> ${esc(m.win_condition)}</div>
     <div class="row">${esc(m.progress)}</div>
     ${m.lover !== null ? `<div class="row">你的恋人:${nm(m.lover)}</div>` : ""}
     ${known ? `<div class="row">你已确认:${known}</div>` : ""}
     ${m.declared.length ? `<div class="row">你已声明:${m.declared.map(([s, i]) => nm(s) + "=" + esc(i)).join(",")}</div>` : ""}
     ${m.memo ? `<div class="row"><span class="k">你的备忘</span> ${esc(m.memo)}</div>` : ""}`;
+  $("acts").innerHTML = (V.my_actions || []).slice().reverse().map(a => `<div class="msg">${esc(a)}</div>`).join("") || `<div class="k">还没有动作</div>`;
 }
 
 function renderMsgs() {

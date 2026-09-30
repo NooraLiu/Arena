@@ -53,6 +53,64 @@ def _reflection_text(eng, seat):
     return None
 
 
+def _card_name(eng, cid):
+    names = getattr(eng, "card_names", {})
+    if cid in names:
+        return names[cid]
+    for q in eng.state.players:
+        for c in q.hand + ([q.equipped_weapon] if q.equipped_weapon else []):
+            if c.id == cid:
+                return c.name
+    for cards in eng.state.decks.values():
+        for c in cards:
+            if c.id == cid:
+                return c.name
+    return cid
+
+
+def _my_actions(eng, seat):
+    """What happened to this seat's own cards and HP, oldest first (only its own events)."""
+    p = eng._p(seat)
+    eq = p.equipped_weapon.id if p.equipped_weapon else None
+    held = {c.id for c in p.hand}
+    out = []
+    for e in eng.log.events:
+        pl, r = e.payload or {}, f"r{e.round_no}"
+        if e.actor == seat:
+            if e.type == "draw":
+                cid = pl.get("got")
+                if cid is None:
+                    out.append(f"{r} 抽牌落空,没抽到牌(那个区的牌堆已经空了)")
+                else:
+                    where = " · 已自动装备" if cid == eq else (" · 在手牌里" if cid in held else "")
+                    out.append(f"{r} 抽到 {_card_name(eng, cid)}{where}")
+            elif e.type == "heal":
+                out.append(f"{r} 吃了 {_card_name(eng, pl.get('food'))} → {pl.get('hp')} 血")
+            elif e.type == "feast_heal":
+                out.append(f"{r} 盛宴回血 → {pl.get('hp')} 血")
+            elif e.type == "poison":
+                out.append(f"{r} 抽到毒食物! → {pl.get('hp')} 血")
+            elif e.type == "steal":
+                out.append(f"{r} 从 s{pl.get('from')} 偷到 {_card_name(eng, pl.get('card'))}")
+            elif e.type == "trade":
+                out.append(f"{r} 把 {_card_name(eng, pl.get('card'))} 给了 s{pl.get('to')}")
+            elif e.type == "craft":
+                out.append(f"{r} 合成了一把武器")
+            elif e.type == "plant_bomb":
+                out.append(f"{r} 埋下炸弹 → {S.NAME_BY_ZONE.get(S.ZONE_BY_NAME.get(str(pl.get('zone'))), pl.get('zone'))}")
+            elif e.type == "peek":
+                out.append(f"{r} 偷看到 s{pl.get('target')} 是 {pl.get('identity')}")
+            elif e.type == "feed":
+                out.append(f"{r} 喂 s{pl.get('to')} 吃了 {_card_name(eng, pl.get('food'))}")
+        elif e.type == "trade" and pl.get("to") == seat:
+            out.append(f"{r} s{e.actor} 给了你 {_card_name(eng, pl.get('card'))}")
+        elif e.type == "steal" and pl.get("from") == seat:
+            out.append(f"{r} s{e.actor} 偷走了你的 {_card_name(eng, pl.get('card'))}")
+        elif e.type == "feed" and pl.get("to") == seat:
+            out.append(f"{r} s{e.actor} 喂你吃了东西 → {pl.get('hp')} 血")
+    return out[-20:]
+
+
 def _status(eng, seat):
     ph = getattr(eng, "phase", "start")
     if ph == "over":
@@ -138,6 +196,7 @@ def human_view(eng, seat):
             "options": _options(eng, seat, ph) if status in ("your_turn", "submitted") else None,
             "brief": getattr(eng, "briefs", {}).get(seat, ""),
             "submitted": _read_decision(seat) if status == "submitted" else None,
+            "my_actions": _my_actions(eng, seat),
             "reflection": None, "result": None}
     if status == "dead":
         text = _reflection_text(eng, seat)

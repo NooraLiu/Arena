@@ -131,3 +131,16 @@ def test_round_one_hides_even_my_own_placeholder_zone(live):
     eng = _started(live)
     v = H.human_view(eng, 0)
     assert v["me"]["zone"] is None and v["players"][0]["zone"] is None
+
+
+def test_my_actions_name_what_i_drew_and_when_the_deck_was_empty(live):
+    eng = _started(live)
+    from arena.events import Event
+    card = eng.state.decks[Zone.CENTER][0]
+    eng.log.record(Event("draw", 1, 0, "private", {"got": card.id}))
+    eng.log.record(Event("draw", 2, 0, "private", {"got": None}))
+    eng.log.record(Event("draw", 2, 1, "private", {"got": "someone-elses-card"}))
+    acts = H.human_view(eng, 0)["my_actions"]
+    assert any(card.name in a and a.startswith("r1") for a in acts)
+    assert any("没抽到" in a and a.startswith("r2") for a in acts)
+    assert not any("someone-elses-card" in a for a in acts)

@@ -408,6 +408,14 @@ function renderReflect() {
   };
 }
 
+function guessLines(r) {
+  const g = Object.entries(r.human_guesses || {});
+  if (!g.length) return "";
+  const hs = new Set(r.humans || []);
+  return `<div class="row" style="margin-top:10px"><b>🕵️ 谁是人类?</b> 真正的人类:${[...hs].map(nm).join("、")}</div>` +
+    g.map(([s, t]) => `<div class="row">${nm(s)} 最后猜是 ${nm(t)} ${hs.has(+t) ? "✅ 猜对了" : "❌"}</div>`).join("");
+}
+
 function renderResult() {
   const r = V.result;
   if (!r) { $("resultPanel").style.display = "none"; return; }
@@ -415,7 +423,7 @@ function renderResult() {
   $("result").innerHTML = V.players.map(p => {
     const w = r.winners[p.seat];
     return `<div class="row">${nm(p.seat)} · ${esc(r.identities[p.seat])} · ${p.alive ? "存活" : "出局"}${w ? ` · <span class="big">🏆 ${esc(w.join("、"))}</span>` : ""}</div>`;
-  }).join("") + `<div class="row"><a href="/">打开观战页看完整回放和所有人的思考 →</a></div>`;
+  }).join("") + guessLines(r) + `<div class="row"><a href="/">打开观战页看完整回放和所有人的思考 →</a></div>`;
 }
 
 async function pickSeat() {

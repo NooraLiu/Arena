@@ -224,7 +224,9 @@ def human_view(eng, seat):
     if status == "over":
         wins = eng.identity_winners()
         view["result"] = {"identities": {str(q.seat): q.identity for q in st.players},
-                          "winners": {str(s): t for s, t in wins.items() if t}}
+                          "winners": {str(s): t for s, t in wins.items() if t},
+                          "humans": sorted(getattr(eng, "humans", {})),
+                          "human_guesses": {str(s): g[-1][1] for s, g in getattr(eng, "human_guesses", {}).items() if g}}
         text = _reflection_text(eng, seat)
         view["reflection"] = {"open": not p.alive and not text, "text": text}
     return view

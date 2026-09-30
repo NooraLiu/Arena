@@ -117,3 +117,19 @@ def test_human_reflection_is_absorbed_without_blocking(live):
         json.dump({"reflection": "我太早进中心了"}, f)
     live.advance()
     assert live._load().reflections[0] == "我太早进中心了"
+
+
+def test_agents_are_told_a_human_is_among_them_and_their_guesses_are_kept(live):
+    live.cmd_init(_ns(human_seats="3"))
+    live.cmd_startround(_ns())
+    eng = live._load()
+    assert "人类" in live._prompt(eng, 0, "move")
+    live._apply_talk(eng, 0, {"human_guess": "s3"}, "move")
+    live._apply_talk(eng, 1, {"human_guess": 2}, "move")
+    assert eng.human_guesses == {0: [(1, 3)], 1: [(1, 2)]}
+
+
+def test_no_human_hint_without_humans(live):
+    live.cmd_init(_ns())
+    live.cmd_startround(_ns())
+    assert "人类玩家" not in live._prompt(live._load(), 0, "move")

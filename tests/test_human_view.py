@@ -161,3 +161,11 @@ def test_eat_option_and_validation(live):
 def test_view_has_character_description(live):
     eng = _started(live)
     assert H.human_view(eng, 0)["me"]["desc"]
+
+
+def test_result_shows_who_guessed_the_human(live):
+    eng = _started(live)
+    eng.human_guesses = {1: [(1, 2), (3, 0)], 2: [(2, 4)]}
+    eng.phase = "over"
+    r = H.human_view(eng, 0)["result"]
+    assert r["humans"] == [0] and r["human_guesses"] == {"1": 0, "2": 4}

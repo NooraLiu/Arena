@@ -653,6 +653,11 @@ def _prompt(eng, seat, phase):
                  + (f"(本回合末 {NAME_BY_ZONE[closing]} 会关闭)" if closing else "")
                  + "。别人也在同时暗选,你只能按现在的局面判断。")
         L.append('决策格式: {"action":"draw或attack:座位","extra":[...],"move":"下回合的区名","say":[...],"memo":"..."}')
+    humans = getattr(eng, "humans", {})
+    if humans and seat not in humans:
+        L.append(f"【谁是人类?】本局有 {len(humans)} 名人类玩家混在你们中间(不是你)。在决策 JSON 里加 "
+                 '"human_guess": 座位号,写下你现在最怀疑谁是人类(每次都可以改);也可以在喊话里试探。'
+                 "游戏结束时会公布谁猜对了。")
     L.append(f"把决策 JSON 用 Write 写到 {DECISION_DIR}/s{seat}.json(只写这一个文件)。")
     return "\n".join(L)
 
@@ -672,7 +677,20 @@ def _record_thinking(eng, seat, phase, memo, round_no=None):
     _json.dump(t, open(tf, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
 
 
+def _record_human_guess(eng, seat, g):
+    if g is None or g == "":
+        return
+    try:
+        target = _seat(g)
+    except (ValueError, TypeError):
+        return
+    if not hasattr(eng, "human_guesses"):
+        eng.human_guesses = {}
+    eng.human_guesses.setdefault(seat, []).append((eng.state.round_no, target))
+
+
 def _apply_talk(eng, seat, d, phase):
+    _record_human_guess(eng, seat, d.get("human_guess"))
     for m in (d.get("say") or [])[:config.MESSAGES_PER_ROUND]:
         if isinstance(m, str):                 # bare string = public message
             m = {"to": "all", "text": m}

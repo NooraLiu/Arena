@@ -903,7 +903,12 @@ def _load_decisions(args):
                     txt = txt[txt.find("{"): txt.rfind("}") + 1]      # tolerate ```json fences
                     out[int(fn[1:-5])] = json.loads(txt)
                 except Exception as ex:
-                    print(f"! {fn} 无法解析 ({ex}),按默认处理")
+                    head = '"reflection":"'
+                    if head in txt:                       # a reflection with stray quotes inside
+                        body = txt[txt.index(head) + len(head): txt.rfind('"')]
+                        out[int(fn[1:-5])] = {"reflection": body.replace("\\n", "\n")}
+                    else:
+                        print(f"! {fn} 无法解析 ({ex}),按默认处理")
     return out
 
 

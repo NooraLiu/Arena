@@ -133,3 +133,11 @@ def test_no_human_hint_without_humans(live):
     live.cmd_init(_ns())
     live.cmd_startround(_ns())
     assert "人类玩家" not in live._prompt(live._load(), 0, "move")
+
+
+def test_reflection_with_unescaped_quotes_is_still_read(live):
+    os.makedirs(live.DECISION_DIR, exist_ok=True)
+    with open(f"{live.DECISION_DIR}/s4.json", "w", encoding="utf-8") as f:
+        f.write('{"reflection":"我太"贪心"了,下次先回血"}')
+    got = live._load_decisions(_ns())
+    assert got[4]["reflection"] == '我太"贪心"了,下次先回血'

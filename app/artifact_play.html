@@ -116,9 +116,9 @@
 </main>
 <script>
 /* Data comes from the Artifact's shared db, written by Claude (play/artifact_bridge.py):
-   steps/<step> (latest = current), views/<step>-s<N> (seat N's view), and the page writes
-   decisions/<step>-s<N> or decisions/refl-s<N>. Both computers use one account, so the seat
-   is picked once per browser and remembered locally. */
+   steps/<step> (latest = current), views/<step>-<slot> (one human seat's view), and the page
+   writes decisions/<step>-<slot> or decisions/refl-<slot>. A slot is a random code per human
+   seat. Both computers use one account, so the slot is picked once per browser and remembered. */
 let DB = null, STEP = null, SEAT = null, WATCHED = "", VIEWDOC = null, MYDEC = null, REFL_SENT = false;
 let unsubView = null, unsubDec = null;
 const store = {get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -385,12 +385,12 @@ async function post(body) {
     if (body.reflection !== undefined) {
       const text = String(body.reflection || "").trim();
       if (!text) return [400, {errors: ["感悟不能为空"]}];
-      await DB.doc("decisions/refl-s" + SEAT).set({seat: SEAT, reflection: text.slice(0, 2000), at: Date.now()});
+      await DB.doc("decisions/refl-" + SEAT).set({slot: SEAT, reflection: text.slice(0, 2000), at: Date.now()});
       REFL_SENT = true;
       return [200, {ok: true}];
     }
     if (STEP.step !== V.step) return [409, {error: "这一步已经结算了,页面已刷新,请看新的局面再决定。"}];
-    await DB.doc("decisions/" + STEP.step + "-s" + SEAT).set({step: STEP.step, seat: SEAT, body, at: Date.now()});
+    await DB.doc("decisions/" + STEP.step + "-" + SEAT).set({step: STEP.step, slot: SEAT, body, at: Date.now()});
     return [200, {ok: true}];
   } catch (e) { return [0, {error: "没存上(" + (e && e.code || e) + "),稍后再试"}]; }
 }
@@ -439,20 +439,22 @@ function renderResult() {
 }
 
 function pickSeat() {
+  document.querySelector(".grid").hidden = true;       // nothing from any seat shows until you pick
   const hs = STEP.humans || [];
   if (!hs.length) { $("fatal").textContent = "这一局没有人类座位。"; return; }
   $("who").textContent = "选座位";
   $("notice").innerHTML = `<div class="panel"><h3>选择你的座位</h3>
-    <div class="k" style="margin-bottom:8px">两台电脑用的是同一个账号:每台电脑选自己的座位,之后这台电脑只显示这个座位。别点别人的座位哦。</div>
-    <div class="chips">${hs.map(h => `<button type="button" class="chip" data-pick="${h.seat}">s${h.seat} ${esc(h.name)}</button>`).join("")}</div></div>`;
+    <div class="k" style="margin-bottom:8px">先和对方约好谁是玩家 1、谁是玩家 2,再点自己的号。点了之后这台电脑只显示你的座位,角色和身份也是点了才看得到。别点对方的号哦。</div>
+    <div class="chips">${hs.map((h, i) => `<button type="button" class="chip" data-pick="${h.slot}">玩家 ${i + 1}</button>`).join("")}</div></div>`;
   document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => {
-    SEAT = +b.dataset.pick; store.set("arena_seat_" + STEP.game, String(SEAT));
+    SEAT = b.dataset.pick; store.set("arena_seat_" + STEP.game, SEAT);
     $("notice").textContent = ""; watchSeat();
   });
 }
 
 function watchSeat() {
-  const id = STEP.step + "-s" + SEAT;
+  document.querySelector(".grid").hidden = false;
+  const id = STEP.step + "-" + SEAT;
   if (id === WATCHED) return;
   WATCHED = id;
   $("reseat").hidden = false;
@@ -464,7 +466,18 @@ function watchSeat() {
   unsubDec = DB.doc("decisions/" + id).onSnapshot(s => { MYDEC = s.exists ? s.data() : null; apply(); }, () => {});
 }
 
-$("reseat").onclick = () => { if (!STEP) return; store.set("arena_seat_" + STEP.game, null); SEAT = null; WATCHED = ""; pickSeat(); };
+$("reseat").onclick = () => {
+  if (!STEP) return;
+  const b = $("reseat");
+  if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "确定换座位?再点一次"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "换座位"; }, 4000); return; }
+  b.dataset.armed = ""; b.textContent = "换座位"; b.hidden = true;
+  if (unsubView) unsubView();
+  if (unsubDec) unsubDec();
+  V = null; VIEWDOC = null; MYDEC = null; SIG = "";
+  store.set("arena_seat_" + STEP.game, null); SEAT = null; WATCHED = "";
+  document.querySelector(".grid").hidden = true;
+  pickSeat();
+};
 
 async function boot() {
   $("who").textContent = "连接中…";
@@ -476,8 +489,8 @@ async function boot() {
       $("notice").innerHTML = `<div class="panel"><h3>还没有对局</h3><div class="k">让 Claude 在聊天里开局。开好后这里会自动出现座位。</div></div>`; return; }
     const newGame = !STEP || STEP.game !== d.game;
     STEP = d;
-    if (newGame) { SEAT = null; WATCHED = ""; const saved = store.get("arena_seat_" + d.game); if (saved !== null) SEAT = +saved; }
-    if (SEAT === null || !d.humans.some(h => h.seat === SEAT)) return pickSeat();
+    if (newGame) { SEAT = null; WATCHED = ""; const saved = store.get("arena_seat_" + d.game); if (saved !== null) SEAT = saved; }
+    if (SEAT === null || !d.humans.some(h => h.slot === SEAT)) return pickSeat();
     watchSeat();
   }, e => { $("fatal").textContent = "连不上对局数据(" + e.code + "),刷新试试"; });
 }

@@ -4,19 +4,22 @@ Human seats play on the Artifact page; the game itself runs here. The page and t
 through the Artifact's shared database, which Claude reads and writes with its ArtifactData tool:
 
   steps/<step>          one doc per published step: {seq, step, game, round, phase, humans, over}
-  views/<step>-s<N>     what human seat N may see at that step (play/human.human_view)
-  decisions/<step>-s<N> written by the page: {step, seat, body} -- body is the agent-format decision
-  decisions/refl-s<N>   written by the page: {seat, reflection}
+  views/<step>-<slot>     what one human seat may see at that step (play/human.human_view)
+  decisions/<step>-<slot> written by the page: {step, slot, body} -- body is the agent-format decision
+  decisions/refl-<slot>   written by the page: {slot, reflection}
+
+A slot is a random per-game code for a human seat, so doc ids (which show up in Claude's tool calls,
+visible to the players) never say which seat is whose.
 
 Every doc this bridge writes is new (step ids only grow), so Claude never needs a document version.
 
-  python3 -m play.artifact_bridge push OUT_DIR [--errors JSON]
+  python3 -m play.artifact_bridge push OUT_DIR
       write steps/views JSON files for the current game state into OUT_DIR and print the ArtifactData
       batch entries ({op, collection, doc_id, file_path}) to send.
   python3 -m play.artifact_bridge pull IN_DIR
       IN_DIR holds the decisions collection as saved by an ArtifactData read with out_dir. Valid
-      decisions for the current step become decision files (exactly like /api/decision); prints
-      {"accepted": [...], "errors": {seat: [...]}, "reflections": [...]}.
+      decisions for the current step become decision files (exactly like /api/decision); rejected ones
+      are shown on the page by the next push. Prints counts only.
 """
 import argparse
 import glob
@@ -24,38 +27,51 @@ import json
 import os
 import secrets
 import sys
+import time
 
 from play import session as S
 from play import human as H
 from app import human_api as A
 
 
+def _slots(eng):
+    """seat -> random slot code for every human seat of this game (made once)."""
+    if not getattr(eng, "bridge_slots", None):
+        eng.bridge_slots = {s: secrets.token_hex(4) for s in sorted(getattr(eng, "humans", {}))}
+    return eng.bridge_slots
+
+
 def _step_id(eng):
     return f"{eng.bridge_game}-{eng.bridge_seq:04d}"
 
 
-def push(out_dir, errors=None):
-    """Publish the current state as a new step. `errors`: {seat: [messages]} from a rejected pull."""
+def push(out_dir):
+    """Publish the current state as a new step, with any errors the last pull found."""
     eng = S._load()
+    errors = getattr(eng, "bridge_errors", None) or {}
+    eng.bridge_errors = {}
     if not getattr(eng, "bridge_game", None):
         eng.bridge_game = "g" + secrets.token_hex(3)
         eng.bridge_seq = 0
     eng.bridge_seq += 1
     step = _step_id(eng)
     eng.bridge_step = step
+    slots = _slots(eng)
     S._save(eng)
     os.makedirs(out_dir, exist_ok=True)
     humans = sorted(getattr(eng, "humans", {}))
     phase = getattr(eng, "phase", "start")
-    doc = {"seq": eng.bridge_seq, "step": step, "game": eng.bridge_game, "round": eng.state.round_no,
+    # seq is a ms clock so the newest step wins even across games (each game's own count restarts)
+    doc = {"seq": int(time.time() * 1000), "step": step, "game": eng.bridge_game, "round": eng.state.round_no,
            "phase": phase, "over": phase == "over",
-           "humans": [{"seat": s, "name": eng._p(s).character.name} for s in humans]}
+           "humans": [{"slot": slots[s]} for s in humans]}   # no seat numbers or names: picking reveals nothing
     writes = [_file(out_dir, "steps", step, doc)]
     for s in humans:
         view = H.human_view(eng, s)
         view["step"] = step
-        view["errors"] = (errors or {}).get(str(s)) or (errors or {}).get(s) or []
-        writes.append(_file(out_dir, "views", f"{step}-s{s}", view))
+        view["errors"] = errors.get(str(s)) or []
+        view["slot"] = slots[s]
+        writes.append(_file(out_dir, "views", f"{step}-{slots[s]}", view))
     return writes
 
 
@@ -80,14 +96,11 @@ def _docs(in_dir):
 def pull(in_dir):
     eng = S._load()
     step = getattr(eng, "bridge_step", None)
-    humans = getattr(eng, "humans", {})
+    by_slot = {v: k for k, v in _slots(eng).items()}
     accepted, errors, reflections = [], {}, []
     for doc_id, d in _docs(in_dir):
-        try:
-            seat = int(d.get("seat"))
-        except (TypeError, ValueError):
-            continue
-        if seat not in humans:
+        seat = by_slot.get(str(d.get("slot")))
+        if seat is None:
             continue
         if doc_id.startswith("refl-"):
             fp = f"{S.HUMAN_DIR}/reflections/s{seat}.json"
@@ -110,17 +123,20 @@ def pull(in_dir):
         if H._read_decision(seat) != new:
             A._write(f"{S.DECISION_DIR}/s{seat}.json", new)
         accepted.append(seat)
-    return {"step": step, "accepted": sorted(accepted), "errors": errors, "reflections": reflections}
+    eng.bridge_errors = errors                         # the next push shows them on the page
+    S._save(eng)
+    # counts only: this output shows up in the chat, where both players can read it
+    return {"step": step, "accepted": len(accepted), "rejected": len(errors), "reflections": len(reflections)}
 
 
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    pp = sub.add_parser("push"); pp.add_argument("out_dir"); pp.add_argument("--errors", default=None)
+    pp = sub.add_parser("push"); pp.add_argument("out_dir")
     pl = sub.add_parser("pull"); pl.add_argument("in_dir")
     a = ap.parse_args()
     if a.cmd == "push":
-        print(json.dumps(push(a.out_dir, json.loads(a.errors) if a.errors else None), ensure_ascii=False))
+        print(json.dumps(push(a.out_dir), ensure_ascii=False))
     else:
         print(json.dumps(pull(a.in_dir), ensure_ascii=False))
 

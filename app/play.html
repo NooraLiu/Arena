@@ -6,39 +6,88 @@
 <title>Arena 玩家席</title>
 <style>
   :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
-        --hit:#ff6b6b;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;}
+        --hit:#ff6b6b;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;
+        --weapon:#EF9F27;--food:#1D9E75;--ammo:#378ADD;--armor:#888780;--violet:#7F77DD;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,"PingFang SC",system-ui,sans-serif}
-  header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   h1{font-size:17px;margin:0 8px 0 0}
-  .pill{padding:3px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px}
+  .pill{padding:3px 11px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13px}
   .pill.turn{background:#2b5a33;border-color:#3f8a4b;color:#dfffe4;font-weight:600}
-  main{max-width:1080px;margin:0 auto;padding:14px 16px}
-  .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
-  @media(max-width:820px){.grid{grid-template-columns:1fr}}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
-  .panel h3{margin:0 0 8px;font-size:14px;color:var(--dim)}
-  .map{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(76px,auto));gap:8px}
-  .zone{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:8px}
-  .zone.closed{opacity:.3} .zone.here{border-color:var(--ok)}
-  .zone .zt{font-size:12px;color:var(--dim);margin-bottom:4px}
-  .zc{grid-column:2;grid-row:2}.zn{grid-column:2;grid-row:1}.ze{grid-column:3;grid-row:2}.zs{grid-column:2;grid-row:3}.zw{grid-column:1;grid-row:2}
-  .tok{display:inline-block;margin:2px;padding:2px 7px;border-radius:8px;border:1px solid var(--line);background:#0e1226;font-size:12.5px}
-  .tok.me{border-color:var(--ok)} .tok.dead{opacity:.4;text-decoration:line-through}
-  .row{margin:3px 0} .k{color:var(--dim);font-size:12px}
-  .card{display:inline-block;margin:2px;padding:2px 7px;border-radius:6px;background:var(--card2);border:1px solid var(--line);font-size:12.5px}
-  .msg{padding:3px 0;border-bottom:1px solid #22273f;font-size:13px} .msg.dm{color:var(--dm)}
-  .scroll{max-height:260px;overflow:auto}
-  select,input,textarea,button{font:inherit;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
-  textarea{width:100%;min-height:60px}
-  button{cursor:pointer;background:#2b3566;border-color:#3a469a;font-weight:600}
-  button:disabled{opacity:.5;cursor:default}
-  .field{margin:8px 0} .field label{display:block;color:var(--dim);font-size:12.5px;margin-bottom:3px}
-  .extra{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0}
+  main{max-width:1120px;margin:0 auto;padding:14px 16px}
+  .grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+  .panel h3{margin:0 0 10px;font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.04em}
+  .k{color:var(--dim);font-size:12px}
+  .row{margin:3px 0}
+  .scroll{max-height:240px;overflow:auto}
+  .msg{padding:4px 0;border-bottom:1px solid #22273f;font-size:13px}.msg:last-child{border:none}.msg.dm{color:var(--dm)}
   .err{color:var(--hit);white-space:pre-wrap;margin:6px 0}
   .ok{color:var(--ok)}
-  details pre{white-space:pre-wrap;font:12.5px/1.5 inherit;color:#cdd3f0;max-height:420px;overflow:auto}
-  .big{font-size:15px;color:var(--win)}
+  .big{font-size:15px;color:var(--win);font-weight:600}
+  /* map */
+  .map{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,minmax(84px,auto));gap:8px}
+  .zone{background:var(--card2);border:1.5px solid var(--line);border-radius:12px;padding:8px;transition:border-color .15s,background .15s}
+  .zone.closed{opacity:.3}.zone.here{box-shadow:inset 0 0 0 1px #3f8a4b}
+  .zone.pick{cursor:pointer;border-color:#3a469a;border-style:dashed}.zone.pick:hover{background:#1c2140}
+  .zone.chosen{border:2px solid var(--zone);background:#1c2447}
+  .zone .zt{font-size:12px;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;gap:6px}
+  .zone .go{font-size:11px;color:var(--zone);font-weight:600}
+  .zc{grid-column:2;grid-row:2}.zn{grid-column:2;grid-row:1}.ze{grid-column:3;grid-row:2}.zs{grid-column:2;grid-row:3}.zw{grid-column:1;grid-row:2}
+  .tok{display:inline-flex;align-items:center;gap:4px;margin:2px;padding:3px 8px;border-radius:9px;border:1px solid var(--line);background:#0e1226;font-size:12.5px}
+  .tok.me{border-color:var(--ok)}.tok.dead{opacity:.4;text-decoration:line-through}
+  .tok.talk{cursor:pointer}.tok.talk:hover{border-color:var(--dm);color:var(--dm)}
+  .hpmini{display:inline-block;width:28px;height:4px;border-radius:2px;background:#2a2f4a;overflow:hidden;vertical-align:middle}
+  .hpmini i{display:block;height:100%}
+  /* character card */
+  .cc-top{display:flex;gap:14px;align-items:center}
+  .avatar{width:64px;height:64px;border-radius:14px;background:#26215C;border:2px solid var(--violet);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#CECBF6;flex:none}
+  .cc-name{font-size:19px;font-weight:700}
+  .cc-desc{font-size:12px;color:var(--dim);margin:2px 0 7px;line-height:1.45}
+  .hpbar{flex:1;height:11px;border-radius:6px;background:var(--card2);border:1px solid var(--line);overflow:hidden}
+  .hpbar i{display:block;height:100%;transition:width .3s}
+  .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0}
+  .stat{background:var(--card2);border-radius:10px;padding:8px;text-align:center}
+  .stat .v{font-size:21px;font-weight:700}
+  .stat.hl{border:1px solid var(--weapon)}.stat.hl .v{color:var(--win)}
+  .skill{border:1px solid #3C3489;background:#171533;border-radius:10px;padding:9px 12px;margin-bottom:14px}
+  .skill .t{font-size:12px;color:#AFA9EC;margin-bottom:3px;font-weight:600}
+  .slot{display:flex;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--weapon);border-radius:10px;padding:8px 11px;margin:4px 0 14px}
+  .slot.empty{border:1px dashed var(--line);color:var(--dim)}
+  .slot .ic{font-size:22px}
+  .hand{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px}
+  .gc{aspect-ratio:3/4;border:1.5px solid var(--line);border-radius:10px;background:var(--card2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;position:relative;user-select:none}
+  .gc .ic{font-size:22px}.gc .nm{font-size:12px;text-align:center;padding:0 3px}.gc .val{font-size:11px;font-weight:700}
+  .gc.weapon{border-color:var(--weapon)}.gc.weapon .val{color:var(--weapon)}
+  .gc.food{border-color:var(--food)}.gc.food .val{color:#5DCAA5}
+  .gc.ammo{border-color:var(--ammo)}.gc.ammo .val{color:#85B7EB}
+  .gc.armor{border-color:var(--armor)}
+  .gc.slotfree{border-style:dashed;color:var(--dim);font-size:11px}
+  .gc.edible{cursor:pointer}.gc.edible:hover{background:#12291f}
+  .gc.eating{background:#0f3326;border-color:#5DCAA5;border-width:2px}
+  .gc .badge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:#1D9E75;color:#04342C;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;white-space:nowrap}
+  .legend{display:flex;gap:12px;margin-top:10px;font-size:11px;color:var(--dim)}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+  /* form */
+  .sec{margin:12px 0}.sec>.lbl{font-size:12.5px;color:var(--dim);margin-bottom:6px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font:inherit;font-size:13px;cursor:pointer}
+  .chip:hover{border-color:#3a469a}
+  .chip.on{background:#2b3566;border-color:var(--zone);color:#fff;font-weight:600}
+  .chip.sm{padding:3px 9px;font-size:12px}
+  .chip.dm.on{background:#3a2a5c;border-color:var(--dm)}
+  .xbox{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:var(--card2)}
+  .xbox.on{border-color:var(--zone)}
+  .xbox .sub{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .say{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  input.txt,textarea{font:inherit;color:var(--ink);background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;width:100%}
+  textarea{min-height:56px}
+  .go-btn{font:inherit;font-weight:700;font-size:15px;color:#fff;background:#2f5bd3;border:none;border-radius:11px;padding:10px 22px;cursor:pointer}
+  .go-btn:disabled{opacity:.5;cursor:default}
+  .ghost-btn{font:inherit;font-size:12.5px;color:var(--dim);background:none;border:1px dashed var(--line);border-radius:9px;padding:4px 10px;cursor:pointer}
+  details pre{white-space:pre-wrap;font:12.5px/1.55 -apple-system,"PingFang SC",sans-serif;color:#cdd3f0;max-height:420px;overflow:auto}
+  a{color:var(--zone)}
 </style>
 </head>
 <body>
@@ -54,17 +103,17 @@
   <div id="notice" class="err"></div>
   <div class="grid">
     <div>
-      <div class="panel"><h3>地图</h3><div class="map" id="map"></div></div>
-      <div class="panel" id="formPanel" style="display:none"><h3 id="formTitle">你的决定</h3><div id="form"></div></div>
-      <div class="panel" id="reflectPanel" style="display:none"><h3>出局感悟</h3><div id="reflect"></div></div>
-      <div class="panel" id="resultPanel" style="display:none"><h3>对局结果</h3><div id="result"></div></div>
-    </div>
-    <div>
+      <div class="panel"><h3>地图 <span id="mapHint" class="k"></span></h3><div class="map" id="map"></div></div>
       <div class="panel"><h3>角色介绍</h3><div id="me"></div></div>
-      <div class="panel"><h3>秘密身份</h3><div id="ident"></div></div>
-      <div class="panel"><h3>我的最近动作</h3><div id="acts" class="scroll"></div></div>
+      <div class="panel" id="formPanel" style="display:none"><h3 id="formTitle">你的决定</h3><div id="form"></div></div>
       <div class="panel"><h3>消息</h3><div id="msgs" class="scroll"></div></div>
       <div class="panel"><h3>公开事件</h3><div id="events" class="scroll"></div></div>
+    </div>
+    <div>
+      <div class="panel"><h3>秘密身份</h3><div id="ident"></div></div>
+      <div class="panel" id="reflectPanel" style="display:none"><h3>出局感悟</h3><div id="reflect"></div></div>
+      <div class="panel" id="resultPanel" style="display:none"><h3>对局结果</h3><div id="result"></div></div>
+      <div class="panel"><h3>我的最近动作</h3><div id="acts" class="scroll"></div></div>
       <div class="panel"><details><summary>规则与我的开局简报</summary><pre id="brief"></pre></details></div>
     </div>
   </div>
@@ -76,10 +125,16 @@ const API = (p) => `${p}?seat=${encodeURIComponent(SEAT)}&key=${encodeURICompone
 const ZN = {center:"中心",forest:"林",water:"水",stone:"石",city:"城"};
 const ZC = {center:"zc",forest:"zn",water:"ze",stone:"zs",city:"zw"};
 const STATUS = {your_turn:"轮到你了",submitted:"已提交,等待其他人",waiting:"等待其他人",dead:"你已出局",over:"游戏结束"};
-let V = null, SIG = "", EDITING = false;
+const PHASE = {start:"准备中",move:"移动",act:"行动",reflect:"收感悟",over:"结束"};
+const XLABEL = {eat:"吃食物",trade:"交换(给同区玩家一张牌)",steal:"偷牌(掷 d4 出 4 成功)",craft:"合成武器",poison:"下毒(2 食物→毒食物)",peek:"偷看身份(每局一次)",feed:"喂食",bomb:"做炸弹"};
+const WICON = {"弓":"🏹","三叉戟":"🔱","斧子":"🪓","长剑":"🗡️","弯刀":"🗡️","双节棍":"🥢"};
+let V = null, SIG = "", EDITING = false, FORM = null, FORMKEY = "";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const nm = (s) => { const p = V.players.find(p => p.seat === +s); return esc(p ? `s${p.seat} ${p.name}` : `s${s}`); };
+const pl = (s) => V.players.find(p => p.seat === +s);
+const nm = (s) => { const p = pl(s); return esc(p ? `s${p.seat} ${p.name}` : `s${s}`); };
+const hpColor = (hp, max) => { const r = hp / max; return r > .5 ? "#1D9E75" : r > .25 ? "#EF9F27" : "#E24B4A"; };
+const icon = (c) => c.type === "weapon" ? (WICON[c.name] || "⚔️") : c.type === "food" ? "🍎" : c.type === "ammo" ? "🔩" : "🛡️";
 
 async function poll() {
   try {
@@ -89,54 +144,125 @@ async function poll() {
     $("fatal").textContent = "";
     const sig = JSON.stringify(d);
     if (sig === SIG) return;
-    const stepChanged = !V || V.round !== d.round || V.phase !== d.phase || V.status !== d.status;
     SIG = sig; V = d;
-    render(stepChanged);
+    syncForm();
+    render();
   } catch (e) { $("fatal").textContent = "连不上服务器,重试中…"; }
 }
 
-function render(stepChanged) {
-  const me = V.me;
-  $("who").textContent = `s${V.seat} ${me.name}`;
-  $("round").textContent = `第 ${V.round} 回合 · ${V.phase === "move" ? "移动" : V.phase === "act" ? "行动" : V.phase}`;
+/* ---------- form state ---------- */
+function blankForm() {
+  const o = V.options;
+  const here = V.me.zone;
+  const f = {action: null, move: null, extras: {}, eat: new Set(), decl: {}, says: [{to: "all", text: ""}, {to: "all", text: ""}], memo: V.me.memo || "", declOpen: false};
+  if (o) {
+    f.move = o.moves.includes(here) ? here : o.moves[0];
+    if (o.kind === "act") f.action = o.forced_attack ? "attack:" + o.attack[0] : "draw";
+  }
+  return f;
+}
+function fromSubmitted(f, d) {
+  if (d.move) f.move = d.move;
+  if (d.action) f.action = d.action;
+  if (typeof d.memo === "string") f.memo = d.memo;
+  (d.say || []).slice(0, 2).forEach((m, i) => { f.says[i] = {to: m.to === undefined || m.to === null ? "all" : m.to, text: m.text || ""}; });
+  (d.extra || []).forEach(x => {
+    const [k, ...rest] = String(x).split(":");
+    if (k === "eat") { f.eat.add(rest.join(":")); return; }
+    if (k === "declare") { rest.join(":").split(",").forEach(p => { const [s, i] = p.split("="); if (i) f.decl[String(s).replace(/^s/, "")] = i; }); f.declOpen = true; return; }
+    const e = f.extras[k] = {on: true};
+    if (k === "trade" || k === "feed") { e.target = rest[0]; e.card = rest.slice(1).join(":"); }
+    else if (k === "steal" || k === "peek") e.target = rest[0];
+    else if (k === "bomb") e.zone = rest[0];
+  });
+  return f;
+}
+function syncForm() {
+  const key = `${V.round}|${V.phase}|${V.options ? V.options.kind : "-"}`;
+  if (key !== FORMKEY || !FORM) {
+    FORMKEY = key; EDITING = false;
+    FORM = V.options ? blankForm() : null;
+    if (FORM && V.submitted) fromSubmitted(FORM, V.submitted);
+  } else if (FORM && V.submitted && !EDITING) {
+    FORM = fromSubmitted(blankForm(), V.submitted);
+  }
+}
+function touch() { EDITING = true; }
+
+/* ---------- render ---------- */
+function render() {
+  $("who").textContent = `s${V.seat} ${V.me.name}`;
+  $("round").textContent = `第 ${V.round} 回合 · ${PHASE[V.phase] || V.phase}`;
   $("status").textContent = STATUS[V.status] || V.status;
   $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
-  const extra = [V.feast_active ? "盛宴生效中" : "", V.feast_next ? "下回合盛宴" : "", V.frozen.length ? "沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean);
-  $("zones").textContent = extra.join(" · ");
-  renderMap(); renderMe(); renderMsgs();
+  $("zones").textContent = [V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
+  renderMap(); renderMe(); renderMsgs(); renderForm(); renderReflect(); renderResult();
   $("brief").textContent = V.brief;
-  if (stepChanged || !EDITING) renderForm();
-  renderReflect(); renderResult();
 }
 
 function renderMap() {
+  const o = V.options, can = o ? o.moves : [];
+  const talk = !!FORM;
+  $("mapHint").textContent = o ? (talk ? "· 点区域选去向,点玩家名字私聊" : "") : "";
   $("map").innerHTML = Object.keys(ZN).map(z => {
     const here = V.players.filter(p => p.zone === z);
     const closed = !V.open_zones.includes(z);
-    const toks = here.map(p => `<span class="tok ${p.seat === V.seat ? "me" : ""} ${p.alive ? "" : "dead"}">s${p.seat} ${esc(p.name)} ${p.hp}/${p.hp_max}${p.weapon ? " · " + esc(p.weapon) + "+" + p.weapon_value : ""}</span>`).join("");
     const left = V.deck_left[z] ?? 0;
-    const tag = closed ? "(已关闭)" : ` · 剩 <b style="color:${left ? "var(--ink)" : "var(--hit)"}">${left}</b> 张`;
-    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""}"><div class="zt">${ZN[z]}${tag}</div>${toks}</div>`;
+    const pick = can.includes(z), chosen = FORM && FORM.move === z && pick;
+    const toks = here.map(p => {
+      const me = p.seat === V.seat, t = talk && !me && p.alive;
+      return `<span class="tok ${me ? "me" : ""} ${p.alive ? "" : "dead"} ${t ? "talk" : ""}" ${t ? `data-talk="${p.seat}" title="私聊 s${p.seat}"` : ""}>s${p.seat} ${esc(p.name)}
+        <span class="hpmini"><i style="width:${Math.max(0, p.hp) / p.hp_max * 100}%;background:${hpColor(p.hp, p.hp_max)}"></i></span>${Math.max(p.hp, 0)}${p.weapon ? " · " + esc(p.weapon) + "+" + p.weapon_value : ""}</span>`;
+    }).join("");
+    const tag = closed ? "已关闭" : `剩 <b style="color:${left ? "var(--ink)" : "var(--hit)"}">${left}</b> 张`;
+    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""} ${pick ? "pick" : ""} ${chosen ? "chosen" : ""}" ${pick ? `data-zone="${z}"` : ""}>
+      <div class="zt"><span>${ZN[z]} · ${tag}</span>${chosen ? `<span class="go">✓ ${o.kind === "act" ? "下回合去这" : "去这"}</span>` : ""}</div>${toks}</div>`;
   }).join("");
   const unknown = V.players.filter(p => p.zone === null);
-  if (unknown.length) $("map").insertAdjacentHTML("beforeend", `<div class="k" style="grid-column:1/4">位置未知(第一回合同时暗选):${unknown.map(p => "s" + p.seat + " " + esc(p.name)).join("、")}</div>`);
+  if (unknown.length) $("map").insertAdjacentHTML("beforeend", `<div class="k" style="grid-column:1/4">位置未知(第一回合同时暗选):${unknown.map(p => talk && p.seat !== V.seat ? `<span class="tok talk" data-talk="${p.seat}">s${p.seat} ${esc(p.name)}</span>` : `s${p.seat} ${esc(p.name)}`).join(" ")}</div>`);
 }
 
 function renderMe() {
-  const m = V.me;
-  $("me").innerHTML = `
-    <div class="row big">s${V.seat} ${esc(m.name)}</div>
-    <div class="row">${m.hp}/${m.hp_max} 血 · 攻击 ${m.base_attack}+武器 = ${m.attack} · ${m.zone ? "在 " + ZN[m.zone] : "位置未定"}</div>
-    <div class="row"><span class="k">技能</span> ${esc(m.skill)}</div>
-    <div class="row"><span class="k">装备</span> ${m.equipped ? `<span class="card">${esc(m.equipped.label)}</span>` : "无"}</div>
-    <div class="row"><span class="k">手牌</span> ${m.hand.map(c => `<span class="card">${esc(c.label)}</span>`).join("") || "无"}</div>`;
+  const m = V.me, dead = V.status === "dead" || m.hp <= 0 && V.status === "over";
+  const hp = Math.max(m.hp, 0);
+  const col = m.skill.match(/^([^:：]{1,8})[:：]/);
+  const eatOK = V.options && V.options.kind === "act" && V.options.extras.some(x => x.kind === "eat");
+  const cards = m.hand.map(c => {
+    const edible = eatOK && c.type === "food", eating = FORM && FORM.eat.has(c.id);
+    return `<div class="gc ${c.type} ${edible ? "edible" : ""} ${eating ? "eating" : ""}" ${edible ? `data-eat="${esc(c.id)}" title="双击:本回合吃掉"` : ""}>
+      ${eating ? `<span class="badge">本回合吃掉</span>` : ""}<span class="ic">${icon(c)}</span><span class="nm">${esc(c.name)}</span><span class="val">${c.type === "weapon" ? "+" + c.value : c.type === "food" ? "回 " + c.value : c.value}</span></div>`;
+  });
+  const limit = Math.max(4, m.hand.length);
+  for (let i = m.hand.length; i < limit; i++) cards.push(`<div class="gc slotfree">空位</div>`);
+  const eq = m.equipped;
+  $("me").innerHTML = `<div style="${dead ? "filter:grayscale(.8);opacity:.7" : ""}">
+    <div class="cc-top">
+      <div class="avatar">${esc(m.name[0] || "?")}</div>
+      <div style="flex:1;min-width:0">
+        <div><span class="cc-name">${esc(m.name)}</span> <span class="k">s${V.seat} · ${m.zone ? "在 " + ZN[m.zone] : "位置未定"}</span></div>
+        <div class="cc-desc">${esc(m.desc || "")}</div>
+        <div style="display:flex;align-items:center;gap:8px"><span>❤️</span><div class="hpbar"><i style="width:${hp / m.hp_max * 100}%;background:${hpColor(hp, m.hp_max)}"></i></div><b>${m.hp} / ${m.hp_max}</b></div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="k">基础攻击</div><div class="v">${m.base_attack}</div></div>
+      <div class="stat"><div class="k">武器</div><div class="v">+${eq ? eq.value : 0}</div></div>
+      <div class="stat hl"><div class="k">攻击掷骰</div><div class="v">d${m.attack}</div></div>
+    </div>
+    <div class="skill"><div class="t">✨ 技能${col ? " · " + esc(col[1]) : ""}</div><div style="font-size:13px">${esc(col ? m.skill.slice(col[0].length) : m.skill)}</div></div>
+    <div class="k">装备</div>
+    ${eq ? `<div class="slot"><span class="ic">${icon(eq)}</span><div style="flex:1"><b>${esc(eq.name)}</b></div><b style="color:var(--win)">+${eq.value}</b></div>` : `<div class="slot empty">未装备武器</div>`}
+    <div class="k" style="margin-bottom:6px">手牌 ${m.hand.length} / 4 ${eatOK ? "· 双击食物牌:本回合吃掉" : ""}</div>
+    <div class="hand">${cards.join("")}</div>
+    <div class="legend"><span><i style="background:var(--weapon)"></i>武器</span><span><i style="background:var(--food)"></i>食物</span><span><i style="background:var(--ammo)"></i>碎片</span></div>
+  </div>`;
   const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
   $("ident").innerHTML = `
-    <div class="row big">${esc(m.identity)}</div>
+    <div class="row big">🎭 ${esc(m.identity)}</div>
     <div class="row"><span class="k">胜利条件</span> ${esc(m.win_condition)}</div>
     <div class="row">${esc(m.progress)}</div>
-    ${m.lover !== null ? `<div class="row">你的恋人:${nm(m.lover)}</div>` : ""}
-    ${known ? `<div class="row">你已确认:${known}</div>` : ""}
+    ${m.lover !== null ? `<div class="row">💞 你的恋人:${nm(m.lover)}</div>` : ""}
+    ${known ? `<div class="row">🔍 你已确认:${known}</div>` : ""}
     ${m.declared.length ? `<div class="row">你已声明:${m.declared.map(([s, i]) => nm(s) + "=" + esc(i)).join(",")}</div>` : ""}
     ${m.memo ? `<div class="row"><span class="k">你的备忘</span> ${esc(m.memo)}</div>` : ""}`;
   $("acts").innerHTML = (V.my_actions || []).slice().reverse().map(a => `<div class="msg">${esc(a)}</div>`).join("") || `<div class="k">还没有动作</div>`;
@@ -150,84 +276,104 @@ function renderMsgs() {
   $("events").innerHTML = V.events.slice().reverse().map(e => `<div class="msg">${esc(e)}</div>`).join("") || `<div class="k">还没有事件</div>`;
 }
 
-function opt(v, label, sel) { return `<option value="${esc(v)}" ${sel ? "selected" : ""}>${esc(label)}</option>`; }
+const chip = (attr, val, label, on, extra = "") => `<button type="button" class="chip ${extra} ${on ? "on" : ""}" ${attr}="${esc(val)}">${label}</button>`;
 
 function renderForm() {
-  EDITING = false;
   const o = V.options;
-  if (!o) { $("formPanel").style.display = "none"; return; }
+  if (!o || !FORM) { $("formPanel").style.display = "none"; return; }
   $("formPanel").style.display = "";
   $("formTitle").textContent = V.status === "submitted" ? "已提交(结算前可以修改)" : "你的决定";
   let h = "";
   if (o.kind === "act") {
-    h += `<div class="field"><label>主行动${o.forced_attack ? "(你在中心,必须攻击)" : ""}</label><select id="f_action">
-      ${o.forced_attack ? "" : opt("draw", "抽一张本区牌")}
-      ${o.attack.map(s => opt("attack:" + s, "攻击 " + nm(s))).join("")}</select></div>`;
-    h += `<div class="field"><label>附加行动(可选)</label>${o.extras.map(extraRow).join("") || `<span class="k">现在没有可用的附加行动</span>`}
-      <div class="extra"><label><input type="checkbox" data-x="declare"> 声明身份</label>
-      ${V.players.filter(p => p.seat !== V.seat).map(p => `<span>${nm(p.seat)} <select data-decl="${p.seat}">${opt("", "—")}${o.identities.map(i => opt(i, i)).join("")}</select></span>`).join("")}</div></div>`;
+    h += `<div class="sec"><div class="lbl">主行动${o.forced_attack ? " · 你在中心,必须攻击" : ""}</div><div class="chips">
+      ${o.forced_attack ? "" : chip("data-act", "draw", "🃏 抽一张本区牌", FORM.action === "draw")}
+      ${o.attack.map(s => chip("data-act", "attack:" + s, "⚔️ 攻击 " + nm(s), FORM.action === "attack:" + s)).join("")}</div></div>`;
+    const xs = o.extras.filter(x => x.kind !== "eat");
+    const eats = [...FORM.eat].map(id => (V.me.hand.find(c => c.id === id) || {name: id}).name);
+    h += `<div class="sec"><div class="lbl">附加行动(可选)</div>`;
+    if (o.extras.some(x => x.kind === "eat")) h += `<div class="k" style="margin-bottom:6px">🍎 ${eats.length ? "本回合吃掉:" + esc(eats.join("、")) + "(在上面的手牌上再双击可取消)" : "在上面角色卡的手牌里双击食物牌,就能在本回合吃掉它"}</div>`;
+    h += xs.map(xBox).join("") || (o.extras.length ? "" : `<div class="k">现在没有可用的附加行动</div>`);
+    h += `<div class="xbox ${FORM.declOpen ? "on" : ""}">${chip("data-decl-toggle", "1", "🎭 声明别人的身份", FORM.declOpen, "sm")}`;
+    if (FORM.declOpen) h += V.players.filter(p => p.seat !== V.seat).map(p => `<div class="sub"><span class="k" style="min-width:86px">${nm(p.seat)}</span>${chip("data-decl", p.seat + "=", "不猜", !FORM.decl[p.seat], "sm")}${o.identities.map(i => chip("data-decl", p.seat + "=" + i, esc(i), FORM.decl[p.seat] === i, "sm")).join("")}</div>`).join("");
+    h += `</div></div>`;
   }
-  h += `<div class="field"><label>${o.kind === "act" ? "下回合去哪" : "这回合去哪"}</label><select id="f_move">${o.moves.map(z => opt(z, ZN[z])).join("")}</select></div>`;
+  h += `<div class="sec"><div class="lbl">${o.kind === "act" ? "下回合去哪" : "这回合去哪"} · 也可以直接点地图</div><div class="chips">${o.moves.map(z => chip("data-move", z, (z === V.me.zone ? "留在 " : "") + ZN[z], FORM.move === z)).join("")}</div></div>`;
+  h += `<div class="sec"><div class="lbl">备忘(只有你自己下回合能看到)</div><textarea id="memo" maxlength="400">${esc(FORM.memo)}</textarea></div>`;
   const to = (o.say_to || V.players.filter(p => p.alive && p.seat !== V.seat).map(p => p.seat));
-  for (const i of [0, 1]) {
-    h += `<div class="field"><label>喊话 ${i + 1}(可空)</label><div class="extra"><select id="f_to${i}">${opt("all", "公开")}${to.map(s => opt(s, "私聊 " + nm(s))).join("")}</select>
-      <input id="f_say${i}" maxlength="200" style="flex:1;min-width:200px"></div></div>`;
-  }
-  h += `<div class="field"><label>备忘(只有你自己下回合能看到)</label><textarea id="f_memo" maxlength="400">${esc(V.me.memo)}</textarea></div>`;
-  h += `<div id="f_err" class="err"></div><button id="f_go">${V.status === "submitted" ? "修改提交" : "提交"}</button> <span id="f_ok" class="ok"></span>`;
+  h += `<div class="sec"><div class="lbl">喊话 / 私聊(可空)· 点地图上的玩家名字也能私聊</div>`;
+  [0, 1].forEach(i => {
+    const s = FORM.says[i];
+    h += `<div class="say"><div class="chips">${chip(`data-to${i}`, "all", "📢 公开", s.to === "all")}${to.map(t => chip(`data-to${i}`, t, "✉️ " + nm(t), String(s.to) === String(t), "dm")).join("")}</div>
+      <input class="txt" id="say${i}" maxlength="200" placeholder="${s.to === "all" ? "对所有人说…" : "悄悄对 s" + s.to + " 说…"}" value="${esc(s.text)}"></div>`;
+  });
+  h += `</div><div id="f_err" class="err"></div>
+    <div style="display:flex;align-items:center;gap:12px"><button class="go-btn" id="f_go">${V.status === "submitted" ? "改好了,重新准备 ✓" : "准备好了 ✓"}</button><span id="f_ok" class="ok"></span></div>`;
   $("form").innerHTML = h;
-  if (V.submitted) prefill(V.submitted);
-  $("form").oninput = () => { EDITING = true; };
+  ["say0", "say1"].forEach((id, i) => $(id).oninput = (e) => { FORM.says[i].text = e.target.value; touch(); });
+  $("memo").oninput = (e) => { FORM.memo = e.target.value; touch(); };
   $("f_go").onclick = submit;
 }
 
-function prefill(d) {
-  const set = (id, v) => { const el = $(id); if (el && v !== undefined && v !== null) el.value = v; };
-  set("f_move", d.move); set("f_action", d.action); set("f_memo", d.memo);
-  (d.say || []).slice(0, 2).forEach((m, i) => { set("f_to" + i, m.to === "all" || m.to == null ? "all" : m.to); set("f_say" + i, m.text); });
-  (d.extra || []).forEach(x => {
-    const [k, ...rest] = String(x).split(":");
-    const cb = document.querySelector(`[data-x="${k}"]`); if (cb) cb.checked = true;
-    if (k === "declare") {
-      rest.join(":").split(",").forEach(pair => { const [s, i] = pair.split("="); const el = document.querySelector(`[data-decl="${String(s).replace(/^s/, "")}"]`); if (el) el.value = i; });
-      return;
-    }
-    const t = document.querySelector(`[data-t="${k}"]`), c = document.querySelector(`[data-c="${k}"]`), z = document.querySelector(`[data-z="${k}"]`);
-    let i = 0;
-    if (t) t.value = rest[i++]; if (c) c.value = rest[i++]; if (z) z.value = rest[i++];
-  });
-}
-
-function extraRow(x) {
-  const k = x.kind;
-  const label = {trade:"交换(给同区玩家一张牌)",steal:"偷牌(掷 d4 出 4 成功)",craft:"合成武器",poison:"下毒(2 食物→毒食物)",peek:"偷看身份(每局一次)",feed:"喂食",bomb:"做炸弹"}[k] || k;
-  let h = `<div class="extra"><label><input type="checkbox" data-x="${k}"> ${label}</label>`;
-  if (x.targets) h += `<select data-t="${k}">${x.targets.map(s => opt(s, nm(s))).join("")}</select>`;
-  if (x.cards) h += `<select data-c="${k}">${x.cards.map(c => opt(c.id, c.label)).join("")}</select>`;
-  if (x.zones) h += `<select data-z="${k}">${x.zones.map(z => opt(z, ZN[z])).join("")}</select>`;
+function xBox(x) {
+  const e = FORM.extras[x.kind] || {};
+  let h = `<div class="xbox ${e.on ? "on" : ""}">${chip("data-xon", x.kind, esc(XLABEL[x.kind] || x.kind), e.on, "sm")}`;
+  if (e.on) {
+    if (x.targets) h += `<div class="sub"><span class="k">对谁</span>${x.targets.map(s => chip("data-xt", x.kind + "|" + s, nm(s), String(e.target) === String(s), "sm")).join("") || `<span class="k">同区没人</span>`}</div>`;
+    if (x.cards) h += `<div class="sub"><span class="k">哪张</span>${x.cards.map(c => chip("data-xc", x.kind + "|" + c.id, esc(c.label), e.card === c.id, "sm")).join("")}</div>`;
+    if (x.zones) h += `<div class="sub"><span class="k">炸哪</span>${x.zones.map(z => chip("data-xz", x.kind + "|" + z, ZN[z], e.zone === z, "sm")).join("")}</div>`;
+  }
   return h + `</div>`;
 }
 
-function collect() {
-  const o = V.options, d = {round: V.round, phase: V.phase, move: $("f_move").value, memo: $("f_memo").value.trim(), say: []};
-  for (const i of [0, 1]) {
-    const t = $("f_say" + i).value.trim();
-    if (t) { const to = $("f_to" + i).value; d.say.push({to: to === "all" ? "all" : +to, text: t}); }
+/* ---------- interactions (delegated) ---------- */
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-act],[data-move],[data-zone],[data-talk],[data-to0],[data-to1],[data-xon],[data-xt],[data-xc],[data-xz],[data-decl],[data-decl-toggle]");
+  if (!t || !FORM) return;
+  const d = t.dataset;
+  if (d.act) FORM.action = d.act;
+  else if (d.move) FORM.move = d.move;
+  else if (d.zone) FORM.move = d.zone;
+  else if (d.talk) {
+    const i = !FORM.says[0].text || FORM.says[0].to === "all" ? 0 : 1;
+    FORM.says[i].to = +d.talk; touch(); renderForm(); renderMap();
+    const inp = $("say" + i); if (inp) { inp.focus(); inp.scrollIntoView({block: "center", behavior: "smooth"}); }
+    return;
   }
+  else if (d.to0 !== undefined) FORM.says[0].to = d.to0 === "all" ? "all" : +d.to0;
+  else if (d.to1 !== undefined) FORM.says[1].to = d.to1 === "all" ? "all" : +d.to1;
+  else if (d.xon) { const e = FORM.extras[d.xon] = FORM.extras[d.xon] || {}; e.on = !e.on;
+    const x = V.options.extras.find(x => x.kind === d.xon);
+    if (e.on && x) { if (x.targets && e.target === undefined && x.targets.length) e.target = String(x.targets[0]); if (x.cards && !e.card && x.cards.length) e.card = x.cards[0].id; if (x.zones && !e.zone) e.zone = x.zones[0]; } }
+  else if (d.xt) { const [k, v] = d.xt.split("|"); FORM.extras[k].target = v; }
+  else if (d.xc) { const [k, ...v] = d.xc.split("|"); FORM.extras[k].card = v.join("|"); }
+  else if (d.xz) { const [k, v] = d.xz.split("|"); FORM.extras[k].zone = v; }
+  else if (d.declToggle) FORM.declOpen = !FORM.declOpen;
+  else if (d.decl !== undefined) { const [s, i] = d.decl.split("="); if (i) FORM.decl[s] = i; else delete FORM.decl[s]; }
+  touch(); renderForm(); renderMap();
+});
+document.addEventListener("dblclick", (ev) => {
+  const t = ev.target.closest("[data-eat]");
+  if (!t || !FORM) return;
+  const id = t.dataset.eat;
+  FORM.eat.has(id) ? FORM.eat.delete(id) : FORM.eat.add(id);
+  touch(); renderMe(); renderForm();
+});
+
+function collect() {
+  const o = V.options, d = {round: V.round, phase: V.phase, move: FORM.move, memo: FORM.memo.trim(), say: []};
+  FORM.says.forEach(s => { const t = s.text.trim(); if (t) d.say.push({to: s.to, text: t}); });
   if (o.kind === "act") {
-    d.action = $("f_action").value;
-    d.extra = [];
-    document.querySelectorAll("[data-x]").forEach(cb => {
-      if (!cb.checked) return;
-      const k = cb.dataset.x;
-      if (k === "declare") {
-        const pairs = [...document.querySelectorAll("[data-decl]")].filter(s => s.value).map(s => `s${s.dataset.decl}=${s.value}`);
-        if (pairs.length) d.extra.push("declare:" + pairs.join(","));
-        return;
-      }
-      const t = document.querySelector(`[data-t="${k}"]`), c = document.querySelector(`[data-c="${k}"]`), z = document.querySelector(`[data-z="${k}"]`);
-      d.extra.push([k, t && t.value, c && c.value, z && z.value].filter(v => v !== null && v !== undefined && v !== "").join(":"));
+    d.action = FORM.action;
+    d.extra = [...FORM.eat].map(id => "eat:" + id);
+    Object.entries(FORM.extras).forEach(([k, e]) => {
+      if (!e.on) return;
+      if (k === "trade" || k === "feed") d.extra.push(`${k}:${e.target}:${e.card}`);
+      else if (k === "steal" || k === "peek") d.extra.push(`${k}:${e.target}`);
+      else if (k === "bomb") d.extra.push(`bomb:${e.zone}`);
+      else d.extra.push(k);
     });
+    const pairs = Object.entries(FORM.decl).map(([s, i]) => `s${s}=${i}`);
+    if (pairs.length) d.extra.push("declare:" + pairs.join(","));
   }
   return d;
 }
@@ -242,7 +388,7 @@ async function submit() {
   let code, r;
   try { [code, r] = await post(collect()); } catch (e) { code = 0; r = {error: "连不上服务器,稍后再试"}; }
   $("f_go").disabled = false;
-  if (code === 200) { EDITING = false; $("notice").textContent = ""; $("f_ok").textContent = "已提交 ✓"; SIG = ""; poll(); }
+  if (code === 200) { EDITING = false; $("notice").textContent = ""; SIG = ""; await poll(); if ($("f_ok")) $("f_ok").textContent = "已提交 ✓"; }
   else if (code === 409) { EDITING = false; $("notice").textContent = r.error; SIG = ""; poll(); }
   else $("f_err").textContent = (r.errors || [r.error]).join("\n");
 }
@@ -254,7 +400,7 @@ function renderReflect() {
   if (!r.open) { $("reflect").innerHTML = `<div class="row">${esc(r.text || "")}</div>`; return; }
   if ($("r_text")) return;
   $("reflect").innerHTML = `<div class="k">写写你的计划、哪里失误了、对游戏节奏的看法。之后你只能看公开信息,等游戏结束。</div>
-    <textarea id="r_text" maxlength="2000"></textarea><div id="r_err" class="err"></div><button id="r_go">提交感悟</button>`;
+    <textarea id="r_text" maxlength="2000" style="margin:8px 0"></textarea><div id="r_err" class="err"></div><button class="go-btn" id="r_go">提交感悟</button>`;
   $("r_go").onclick = async () => {
     const [code, res] = await post({reflection: $("r_text").value});
     if (code === 200) { SIG = ""; $("reflect").innerHTML = ""; poll(); } else $("r_err").textContent = (res.errors || [res.error]).join("\n");
@@ -267,8 +413,8 @@ function renderResult() {
   $("resultPanel").style.display = "";
   $("result").innerHTML = V.players.map(p => {
     const w = r.winners[p.seat];
-    return `<div class="row">${nm(p.seat)} · ${esc(r.identities[p.seat])} · ${p.alive ? "存活" : "出局"}${w ? ` · <span class="big">赢得 ${esc(w.join("、"))}</span>` : ""}</div>`;
-  }).join("") + `<div class="row"><a href="/" style="color:var(--zone)">打开观战页看完整回放和所有人的思考 →</a></div>`;
+    return `<div class="row">${nm(p.seat)} · ${esc(r.identities[p.seat])} · ${p.alive ? "存活" : "出局"}${w ? ` · <span class="big">🏆 ${esc(w.join("、"))}</span>` : ""}</div>`;
+  }).join("") + `<div class="row"><a href="/">打开观战页看完整回放和所有人的思考 →</a></div>`;
 }
 
 if (!SEAT || !KEY) $("fatal").textContent = "链接缺少 seat 或 key 参数";

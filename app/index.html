@@ -48,6 +48,11 @@
   .cast .c{background:var(--card);border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:6px 9px;font-size:12.5px}
   .cast .c .nm{font-weight:600} .cast .c .st{color:var(--dim);font-size:11px} .cast .c .sk{color:#cdd3f0;font-size:11.5px;margin-top:2px}
   .empty{color:var(--dim);text-align:center;padding:26px 0}
+  .cast .c .hum{margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--win)}
+  .cast .c .hum a,.cast .c .hum button{font-size:12px;padding:3px 9px;border-radius:7px;text-decoration:none}
+  .cast .c .hum a{color:var(--ink);background:#2b3566;border:1px solid #3a469a;font-weight:600}
+  .cast .c .hum a:hover{background:#33409a}
+  .note{background:#20264a;border:1px solid #3a469a;border-radius:10px;padding:8px 12px;margin:0 0 12px;font-size:13px;color:#cdd3f0}
 </style>
 </head>
 <body>
@@ -55,12 +60,15 @@
   <h1>⚔️ Arena 对战台</h1>
   <label>人数 <select id="players"><option>5</option><option selected>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></label>
   <button id="go">开始新一局(bot)</button>
+  <label>人类玩家 <select id="humans"></select></label>
+  <button id="goLive">开始新一局(人类+AI)</button>
   <button id="load" class="ghost">读取实时对局</button>
   <button id="cfgBtn" class="ghost">⚙ 每座位模型</button>
   <span id="status" style="color:var(--dim)"></span>
   <div class="cfg" id="cfg"></div>
 </header>
 <main>
+  <div id="note"></div>
   <div id="out"><div class="empty">点「开始新一局」看 bot 对局(地图/回合/角色面板全可用),或「读取实时对局」查看正在进行的 LLM 对局。</div></div>
 </main>
 <script>
@@ -71,18 +79,19 @@ const MODELS=["opus-5","opus-4.8","sonnet-5","haiku-4.5","fable-5.1"];
 const SKILL={
  "Riley":"小偷:附加行动,d4 出4则偷同区一人一张手牌(不偷已装备武器)",
  "Elliot":"拾荒:同区无人时一次抽2张,手牌上限6",
- "Agatha":"合成:两张初级武器→攻击相加的武器,或减伤2的护盾",
+ "Agatha":"合成:两张初级武器→一把攻击相加的武器",
  "Fae":"在林区,攻击的回合也能额外抽一张牌",
  "Natalie":"下毒:2张食物→1张毒食物洗入本区牌堆,抽到者 -4",
- "Cato":"最强 15血/攻4,但不能用碎片造炸弹",
+ "Cato":"12血/攻4,但不能用碎片造炸弹",
  "Garcia":"只需2枚碎片就能造一个炸弹",
  "Tobias":"三叉戟在手且在水区时,每回合多抽一张牌",
- "Bram":"蛮力:攻击时无视对方护甲",
+ "Bram":"重击:攻击时掷两次骰子,取较高的一次",
  "Iris":"在城区每局一次,可秘密查看同区一名玩家的身份",
  "Mira":"附加行动:把食物给同区盟友吃,回血效果+2",
  "Michael":"拿到弓时,可攻击相邻区域的玩家"
 };
 let DATA=null, IDX=0, NAME={}, COLOR={}, sel=null;
+let SEATKEYS={}, KEYS_FOR="";   // human seat -> key; only this computer gets them (/api/my_seats)
 
 function norm(z){return ({n:"forest",e:"water",s:"stone",w:"city"})[z]||z;}
 function nm(s){return s==null?"":(NAME[s]||("s"+s));}
@@ -156,8 +165,11 @@ function render(){
   const cast=document.createElement("div");cast.className="cast";
   cast.innerHTML=d.roster.map(p=>`<div class="c" style="border-left-color:${COLOR[p.seat]}">
       <div class="nm" style="color:${COLOR[p.seat]}">${p.name} <span class="st">${p.hp_max}血/攻${p.attack}</span></div>
-      <div class="sk">${SKILL[p.name]||""}</div></div>`).join("");
+      <div class="sk">${SKILL[p.name]||""}</div>${humanSeat(p.seat)}</div>`).join("");
   out.appendChild(cast);
+  cast.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{
+    try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="已复制";}
+    catch(e){prompt("复制这个链接发给对方:",b.dataset.copy);}});
   // body grid
   const grid=document.createElement("div");grid.className="grid";
   grid.innerHTML=`<div><div class="map" id="map"></div>
@@ -170,6 +182,23 @@ function render(){
   step.querySelector("#next").onclick=()=>{IDX=Math.min(maxi,IDX+1);upd();};
   step.querySelector("#slider").oninput=(e)=>{IDX=+e.target.value;upd();};
   renderRound();
+}
+
+// human seats: a badge for everyone, plus the way in for whoever runs the server
+function seatLink(s){return SEATKEYS[s]?`${location.origin}/play.html?seat=${s}&key=${encodeURIComponent(SEATKEYS[s])}`:null;}
+function humanSeat(s){
+  if(!(DATA.humans||[]).includes(s))return "";
+  const url=seatLink(s);
+  return `<div class="hum">🧑 人类玩家席${url?` <a href="${url}" target="_blank">进入玩家席</a><button class="ghost" data-copy="${url}">复制链接</button>`:""}</div>`;
+}
+async function loadSeatKeys(d){
+  const want=JSON.stringify([d.seed,d.humans||[],(d.roster||[]).map(p=>p.name)]);
+  if(!(d.humans||[]).length){SEATKEYS={};KEYS_FOR=want;return;}
+  if(want===KEYS_FOR)return;
+  try{const r=await fetch("/api/my_seats",{cache:"no-store"});const j=await r.json();
+    SEATKEYS={};(j.seats||[]).forEach(x=>SEATKEYS[x.seat]=x.key);}
+  catch(e){SEATKEYS={};}
+  KEYS_FOR=want;
 }
 
 function renderRound(){
@@ -239,12 +268,13 @@ async function loadJSON(url){
 }
 const btn=document.getElementById("go");
 btn.addEventListener("click",async()=>{btn.disabled=true;if(LIVE){clearInterval(LIVE);LIVE=null;}
+  document.getElementById("note").innerHTML="";
   await loadJSON(`/api/new_game?players=${document.getElementById("players").value}`);btn.disabled=false;});
 // live mode: poll the session export; follow the newest round unless the viewer scrolled back
 let LIVE=null, LAST="";
 async function pollLive(){
   try{const r=await fetch("/live/game.json",{cache:"no-store"});const t=await r.text();
-    if(t===LAST)return; LAST=t; const d=JSON.parse(t);
+    if(t===LAST)return; LAST=t; const d=JSON.parse(t); await loadSeatKeys(d);
     const atEnd=!DATA||IDX>=(DATA.snapshots||[]).length-1, keep=sel;
     DATA=d; if(atEnd)IDX=(d.snapshots||[]).length-1; sel=keep; render();
     document.getElementById("status").textContent="实时对局 · 自动刷新中 · "+new Date().toLocaleTimeString();
@@ -253,6 +283,26 @@ async function pollLive(){
 document.getElementById("load").addEventListener("click",()=>{
   if(LIVE){clearInterval(LIVE);LIVE=null;document.getElementById("status").textContent="已停止自动刷新";return;}
   LAST="";DATA=null;pollLive();LIVE=setInterval(pollLive,2500);
+});
+// start a live game with some human seats; the other seats are AI agents
+const PSEL=document.getElementById("players"), HSEL=document.getElementById("humans");
+function fillHumans(){const n=+PSEL.value, cur=HSEL.value===""?2:Math.min(+HSEL.value,n);
+  HSEL.innerHTML=Array.from({length:n+1},(_,i)=>`<option ${i===cur?"selected":""}>${i}</option>`).join("");}
+PSEL.addEventListener("change",fillHumans); fillHumans();
+const goLive=document.getElementById("goLive");
+goLive.addEventListener("click",async()=>{
+  const n=+PSEL.value, h=+HSEL.value;
+  if(!confirm(`开一局 ${n} 人的新对局:${h} 名人类 + ${n-h} 个 AI?\n正在进行的实时对局会被覆盖。`))return;
+  goLive.disabled=true; const st=document.getElementById("status");
+  try{const r=await fetch(`/api/new_live_game?players=${n}&humans=${h}`,{method:"POST"});const j=await r.json();
+    if(j.error){st.textContent="错误:"+j.error;return;}
+    KEYS_FOR="";LAST="";DATA=null;IDX=0;sel=null;
+    if(LIVE)clearInterval(LIVE);
+    await pollLive(); LIVE=setInterval(pollLive,2500);
+    document.getElementById("note").innerHTML=`<div class="note">${j.all_human?"全是人类玩家:每个人点自己座位上的「进入玩家席」,所有人都提交后自动结算。"
+      :`已开局(种子 ${j.seed})。人类座位点下面的「进入玩家席」;AI 座位由 Claude 推进——在 Claude Code 聊天里说「推进 Arena 对局」。`}</div>`;
+  }catch(e){st.textContent="开局失败:"+e;}
+  finally{goLive.disabled=false;}
 });
 buildCfg(12);
 </script>

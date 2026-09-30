@@ -373,7 +373,8 @@ def _export(eng):
          "thinking":{str(k):{str(rr):tt for rr,tt in v.items()} for k,v in thinking.items()},
          "outcome":("进行中" if not over else {-1:"draw",eng.LOVERS_WIN:"lovers"}.get(w,"win")),
          "rounds":st.round_no-1,"survivor":(None if not over or w<0 else w),
-         "reflections":{str(k):v for k,v in getattr(eng,"reflections",{}).items()}}
+         "reflections":{str(k):v for k,v in getattr(eng,"reflections",{}).items()},
+         "humans":sorted(getattr(eng,"humans",{}))}
     _json.dump(out, open(f"{APP_LIVE}/game.json","w",encoding="utf-8"), ensure_ascii=False)
 
 

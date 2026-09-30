@@ -93,3 +93,25 @@ def my_seats(local):
         eng = S._load()
     return 200, {"seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
                            for s, k in sorted(getattr(eng, "humans", {}).items())]}
+
+
+def new_live_game(local, players, humans, seed=None):
+    """Start a fresh live game (replacing the current one) with `humans` random human seats;
+    the rest are AI seats. Only from this computer, since it throws away the running game."""
+    import argparse
+    import contextlib
+    import io
+    import random
+    if not local:
+        return 403, {"error": "只有在运行服务器的这台电脑上才能开新局"}
+    if not 5 <= players <= 12 or not 0 <= humans <= players:
+        return 400, {"error": f"人数要在 5~12 之间,人类玩家 0~{players} 名"}
+    seed = random.randint(0, 10**6) if seed is None else seed
+    with LOCK:
+        with contextlib.redirect_stdout(io.StringIO()):     # init prints links meant for the CLI
+            S.cmd_init(argparse.Namespace(players=players, seed=seed, humans=humans,
+                                          human_seats=None, decisions=None))
+        eng = S._load()
+    return 200, {"seed": seed, "all_human": _all_human(eng),
+                 "seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
+                           for s, k in sorted(eng.humans.items())]}

@@ -108,8 +108,7 @@ class Handler(BaseHTTPRequestHandler):
             with open(os.path.join(os.path.dirname(__file__), "play.html"), encoding="utf-8") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
         elif u.path == "/api/my_seats":
-            local = self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
-            code, body = human_api.my_seats(local)
+            code, body = human_api.my_seats(self._local())
             self._send(code, json.dumps(body, ensure_ascii=False))
         elif u.path == "/api/view":
             seat, key = self._seat_key(u)
@@ -117,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(code, json.dumps(body, ensure_ascii=False))
         else:
             self._send(404, json.dumps({"error": "not found"}))
+
+    def _local(self):
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
     def _seat_key(self, u):
         q = parse_qs(u.query)
@@ -128,6 +130,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/new_live_game":
+            q = parse_qs(u.query)
+            try:
+                players, humans = int(q.get("players", ["6"])[0]), int(q.get("humans", ["1"])[0])
+            except ValueError:
+                return self._send(400, json.dumps({"error": "人数要是数字"}, ensure_ascii=False))
+            code, out = human_api.new_live_game(self._local(), players, humans)
+            return self._send(code, json.dumps(out, ensure_ascii=False))
         if u.path != "/api/decision":
             return self._send(404, json.dumps({"error": "not found"}))
         seat, key = self._seat_key(u)

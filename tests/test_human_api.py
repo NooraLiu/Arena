@@ -111,3 +111,20 @@ def test_local_visitor_can_list_human_seats_remote_cannot(game):
     code, r = A.my_seats(local=True)
     assert code == 200 and r["seats"] == [{"seat": 0, "key": _key(game), "name": game._load()._p(0).character.name}]
     assert A.my_seats(local=False)[0] == 403
+
+
+def test_new_live_game_from_the_page_picks_the_number_of_humans(live):
+    code, r = A.new_live_game(local=True, players=7, humans=2, seed=5)
+    assert code == 200 and len(r["seats"]) == 2 and not r["all_human"]
+    eng = live._load()
+    assert len(eng.state.players) == 7
+    assert {s["seat"]: s["key"] for s in r["seats"]} == eng.humans
+    exported = json.load(open(f"{live.APP_LIVE}/game.json", encoding="utf-8"))
+    assert exported["humans"] == sorted(eng.humans)
+    assert "key" not in json.dumps(exported["humans"])          # seat numbers only, never the keys
+
+
+def test_new_live_game_is_local_only_and_checks_counts(live):
+    assert A.new_live_game(local=False, players=6, humans=1)[0] == 403
+    assert A.new_live_game(local=True, players=4, humans=1)[0] == 400
+    assert A.new_live_game(local=True, players=6, humans=7)[0] == 400

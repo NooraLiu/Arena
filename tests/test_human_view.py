@@ -144,3 +144,20 @@ def test_my_actions_name_what_i_drew_and_when_the_deck_was_empty(live):
     assert any(card.name in a and a.startswith("r1") for a in acts)
     assert any("没抽到" in a and a.startswith("r2") for a in acts)
     assert not any("someone-elses-card" in a for a in acts)
+
+
+def test_eat_option_and_validation(live):
+    from arena.models import Card, CardType
+    eng = _act_game(live, [Zone.N, Zone.E, Zone.S, Zone.W, Zone.CENTER, Zone.CENTER])
+    eng.state.players[0].hand = [Card("f1", CardType.FOOD, 2, name="面包"), Card("w1", CardType.WEAPON, 1, name="枝")]
+    opts = H._options(eng, 0, "act")
+    eat = next(o for o in opts["extras"] if o["kind"] == "eat")
+    assert [c["id"] for c in eat["cards"]] == ["f1"]
+    go = opts["moves"][0]
+    assert H.validate_decision(eng, 0, "act", {"action": "draw", "move": go, "extra": ["eat:f1"]}) == []
+    assert H.validate_decision(eng, 0, "act", {"action": "draw", "move": go, "extra": ["eat:w1"]})
+
+
+def test_view_has_character_description(live):
+    eng = _started(live)
+    assert H.human_view(eng, 0)["me"]["desc"]

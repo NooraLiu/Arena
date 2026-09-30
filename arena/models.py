@@ -102,6 +102,11 @@ class PeekIdentity:       # Iris: once per game, in the city, secretly see a sam
 
 
 @dataclass
+class EatFood:            # anyone: eat one of your food cards now (additional action)
+    card_id: str
+
+
+@dataclass
 class FeedFood:           # Mira: feed one of her foods to a same-zone player (+2 extra HP)
     target_seat: int
     card_id: Optional[str] = None     # which food; None = her smallest food

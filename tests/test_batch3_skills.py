@@ -120,3 +120,26 @@ def test_feast_heal_never_lowers_hp():
     eng.state.feast_active = True
     eng._feast(p)
     assert p.hp == 12
+
+
+# ---- anyone may choose to eat a food card (extra action), capped at max HP ----
+def test_eating_a_chosen_food_heals_and_uses_the_card():
+    from arena.models import EatFood
+    a, b = _food("a", 1), _food("b", 2)
+    p = _p(0, "X", Zone.N, hp=5, hand=[a, b])
+    eng = _engine([p])
+    eng._apply_additional(p, EatFood("b"))
+    assert p.hp == 7 and b not in p.hand and a in p.hand
+    assert any(e.type == "heal" and e.actor == 0 for e in eng.log.events)
+
+
+def test_eating_needs_that_food_in_hand_and_stops_at_max():
+    from arena.models import EatFood
+    w = Card("w", CardType.WEAPON, 2, name="棍")
+    p = _p(0, "X", Zone.N, hp=9, hand=[w, _food("f", 4)])
+    eng = _engine([p])
+    eng._apply_additional(p, EatFood("w"))            # not food: nothing happens
+    eng._apply_additional(p, EatFood("nope"))
+    assert p.hp == 9 and w in p.hand
+    eng._apply_additional(p, EatFood("f"))
+    assert p.hp == 10

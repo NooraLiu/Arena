@@ -2,7 +2,7 @@ import random
 from collections import Counter, defaultdict
 from typing import Dict, List
 from .models import (Zone, PlayerState, GameState, Move, Draw, Attack, CardType, Card,
-                     PlantBomb, TradeCard, Bomb, Message, StealCard, CraftWeapon, CraftShield, PoisonFood,
+                     PlantBomb, TradeCard, Bomb, Message, StealCard, CraftWeapon, CraftShield, PoisonFood, EatFood,
                      PeekIdentity, FeedFood)
 from .map import legal_moves
 from .deck import draw as deck_draw, enforce_hand_limit
@@ -208,6 +208,14 @@ class Engine:
                 p.hand.append(stolen)
                 self.log.record(Event("steal", self.state.round_no, p.seat, "private",
                                        {"from": target.seat, "card": stolen.id}))
+        elif isinstance(action, EatFood):
+            food = next((c for c in p.hand if c.id == action.card_id and c.type == CardType.FOOD), None)
+            if food is None:
+                return
+            p.hand.remove(food)
+            self._heal(p, food.value)
+            self.log.record(Event("heal", self.state.round_no, p.seat, "public",
+                                   {"food": food.id, "hp": p.hp}))
         elif isinstance(action, (CraftWeapon, CraftShield)):
             if not self._skill(p).can_craft():
                 return

@@ -91,3 +91,28 @@ def test_progress_never_names_other_identities():
         line = S._progress(eng, p.seat)
         others = {q.identity for q in eng.state.players if q.identity != p.identity}
         assert not any(i in line for i in others), line
+
+
+def test_eat_is_offered_with_food_and_happens_before_the_main_action(live):
+    import argparse
+    from arena.models import Card, CardType
+    live.cmd_init(argparse.Namespace(players=6, seed=2, human_seats=None, humans=0, decisions=None))
+    eng = live._load()
+    for p in eng.state.players:
+        p.zone = Zone.N
+    me = eng.state.players[0]
+    food = Card("f-test", CardType.FOOD, 2, name="面包")
+    me.hand = [food]
+    me.hp = 8
+    eng.state.round_no, eng.phase = 2, "act"
+    live._save(eng)
+    assert "eat:食物牌ID" in live._extras(eng, me)
+    assert "eat:食物牌ID" not in live._extras(eng, eng.state.players[1])      # no food, no option
+    ds = {s: {"action": "draw", "move": "forest"} for s in range(6)}
+    ds[0] = {"action": "draw", "move": "forest", "extra": ["eat:f-test"]}
+    import json
+    live.cmd_actphase(argparse.Namespace(decisions=json.dumps(ds)))
+    eng = live._load()
+    kinds = [e.type for e in eng.log.events if e.actor == 0]
+    assert kinds.index("heal") < kinds.index("draw")
+    assert eng._p(0).hp == 10 and food not in eng._p(0).hand

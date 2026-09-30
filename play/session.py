@@ -30,7 +30,7 @@ import sys
 from arena.setup import new_game
 from arena.models import (Zone, Draw, Attack, PlantBomb, TradeCard, CardType,
                           StealCard, CraftWeapon, CraftShield, PoisonFood,
-                          PeekIdentity, FeedFood)
+                          PeekIdentity, FeedFood, EatFood)
 from arena import config
 from arena.map import legal_moves
 from arena.engine import build_observation
@@ -451,6 +451,8 @@ def _extras(eng, p):
     sk = eng._skill(p)
     mates = [q for q in eng.alive_players() if q.seat != p.seat and q.zone == p.zone]
     out = []
+    if any(c.type == CardType.FOOD for c in p.hand):
+        out.append("eat:食物牌ID")
     if mates and (p.hand or p.equipped_weapon):
         out.append("trade:座位:牌ID")
     if sk.can_steal() and any(q.hand for q in mates):
@@ -951,6 +953,8 @@ def _parse_extra(eng, seat, x):
         return FeedFood(_seat(to), cid or None)
     if k == "bomb":
         return PlantBomb(_zone(rest))
+    if k == "eat":
+        return EatFood(rest.strip())
     return None
 
 
@@ -970,6 +974,9 @@ def cmd_actphase(args):
         d = decisions.get(p.seat) or auto.get(p.seat) or {"action": "draw"}
         if p.seat in decisions:
             _apply_talk(eng, p.seat, d, "act")
+        extras = [str(x) for x in (d.get("extra") or [])]
+        for x in [x for x in extras if x.startswith("eat:")]:     # eating comes before the main action
+            eng._apply_additional(p, EatFood(x[4:].strip()))
         eng._maybe_heal(p)
         atk = build_observation(eng, p.seat).attackable_seats
         act = str(d.get("action", "draw"))
@@ -981,7 +988,7 @@ def cmd_actphase(args):
             eng._apply(p, Attack(tgt))
         else:
             eng._apply(p, Draw())
-        for x in d.get("extra") or []:
+        for x in [x for x in extras if not x.startswith("eat:")]:
             if str(x).startswith("declare:"):
                 _apply_declare(eng, p.seat, str(x)[len("declare:"):])
                 continue

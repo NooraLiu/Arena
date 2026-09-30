@@ -17,6 +17,23 @@ MAX_TEXT = 200
 MAX_MEMO = 400
 
 
+_DESC = None
+
+
+def _descriptions():
+    """Character flavor text from the 人物 sheet (loaded once)."""
+    global _DESC
+    if _DESC is None:
+        _DESC = {}
+        try:
+            from arena.deck_loader import _open, _iter_rows
+            for row in _iter_rows(_open(S.DECK)["人物"], "角色名"):
+                _DESC[str(row["角色名"]).strip()] = str(row.get("描述") or "").strip()
+        except Exception:
+            pass
+    return _DESC
+
+
 def _names(zones):
     return [S.NAME_BY_ZONE[z] for z in sorted(zones, key=lambda z: z.value)]
 
@@ -137,6 +154,8 @@ def _extra_options(eng, p):
             o["targets"] = [s for s in mates if eng._p(s).hand]
         elif kind == "peek":
             o["targets"] = mates
+        elif kind == "eat":
+            o["cards"] = [_card(c) for c in p.hand if c.type == CardType.FOOD]
         elif kind == "feed":
             o.update(targets=mates, cards=[_card(c) for c in p.hand if c.type == CardType.FOOD])
         elif kind == "bomb":
@@ -174,7 +193,8 @@ def human_view(eng, seat):
     if p.identity == "Lovers":
         lover = next((q.seat for q in st.players if q.identity == "Lovers" and q.seat != seat), None)
     known = getattr(eng, "known_identities", {}).get(seat) or {}
-    me = {"name": p.character.name, "hp": p.hp, "hp_max": p.character.hp_max,
+    me = {"name": p.character.name, "desc": _descriptions().get(p.character.name, ""),
+          "hp": p.hp, "hp_max": p.character.hp_max,
           "base_attack": p.character.base_attack, "attack": S._atk(p),
           "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": None if blind else S.NAME_BY_ZONE[p.zone],
           "hand": [_card(c) for c in p.hand],
@@ -249,7 +269,10 @@ def _check_extra(eng, seat, x, opts, errs):
         errs.append(f"现在不能用 {kind}")
         return
     try:
-        if kind in ("trade", "feed"):
+        if kind == "eat":
+            if rest.strip() not in {c["id"] for c in o["cards"]}:
+                errs.append(f"只能吃你手里的食物: {rest}")
+        elif kind in ("trade", "feed"):
             to, _, cid = rest.partition(":")
             if S._seat(to) not in o["targets"] or cid not in {c["id"] for c in o["cards"]}:
                 errs.append(f"{kind} 的对象或牌不对: {rest}")

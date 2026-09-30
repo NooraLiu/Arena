@@ -113,9 +113,9 @@ def test_local_visitor_can_list_human_seats_remote_cannot(game):
     assert A.my_seats(local=False)[0] == 403
 
 
-def test_new_live_game_from_the_page_picks_the_number_of_humans(live):
-    code, r = A.new_live_game(local=True, players=7, humans=2, seed=5)
-    assert code == 200 and len(r["seats"]) == 2 and not r["all_human"]
+def test_new_live_game_from_the_page_picks_humans_and_ai(live):
+    code, r = A.new_live_game(local=True, humans=2, ai=5, seed=5)
+    assert code == 200 and len(r["seats"]) == 2 and not r["all_human"] and r["archived"] is None
     eng = live._load()
     assert len(eng.state.players) == 7
     assert {s["seat"]: s["key"] for s in r["seats"]} == eng.humans
@@ -125,6 +125,39 @@ def test_new_live_game_from_the_page_picks_the_number_of_humans(live):
 
 
 def test_new_live_game_is_local_only_and_checks_counts(live):
-    assert A.new_live_game(local=False, players=6, humans=1)[0] == 403
-    assert A.new_live_game(local=True, players=4, humans=1)[0] == 400
-    assert A.new_live_game(local=True, players=6, humans=7)[0] == 400
+    assert A.new_live_game(local=False, humans=1, ai=5)[0] == 403
+    assert A.new_live_game(local=True, humans=1, ai=3)[0] == 400      # 4 players
+    assert A.new_live_game(local=True, humans=7, ai=6)[0] == 400      # 13 players
+    assert A.new_live_game(local=True, humans=-1, ai=7)[0] == 400
+
+
+def test_a_game_in_progress_is_never_replaced_without_asking(live):
+    A.new_live_game(local=True, humans=2, ai=4, seed=1)
+    live.advance()
+    before = open(live.STATE, "rb").read()
+    code, r = A.new_live_game(local=True, humans=1, ai=5, seed=2)
+    assert code == 409 and r["error"] == "in_progress" and r["players"] == 6
+    assert open(live.STATE, "rb").read() == before                   # untouched
+    assert A.live_status()[1]["game"]["over"] is False
+
+
+def test_replacing_a_game_archives_it_first(live):
+    import os
+    import pickle
+    A.new_live_game(local=True, humans=2, ai=4, seed=1)
+    old_keys = live._load().humans
+    code, r = A.new_live_game(local=True, humans=1, ai=5, seed=2, force=True)
+    assert code == 200 and r["archived"] and r["archived"].endswith("-unfinished")
+    kept = pickle.load(open(os.path.join(r["archived"], "game.pkl"), "rb"))
+    assert kept.humans == old_keys and len(kept.state.players) == 6
+    assert os.path.exists(os.path.join(r["archived"], "app_live", "game.json"))
+    assert len(live._load().state.players) == 6 and len(live._load().humans) == 1
+
+
+def test_a_finished_game_is_archived_without_asking(live):
+    A.new_live_game(local=True, humans=0, ai=5, seed=1)
+    eng = live._load()
+    eng.phase, eng.game_over = "over", True
+    live._save(eng)
+    code, r = A.new_live_game(local=True, humans=2, ai=3, seed=2)
+    assert code == 200 and r["archived"] and not r["archived"].endswith("-unfinished")

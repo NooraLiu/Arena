@@ -9,3 +9,4 @@ play/agents/
 play/*.pkl
 play/live/
 app/live/
+play/archive/

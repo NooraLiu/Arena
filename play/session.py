@@ -43,6 +43,7 @@ _SANDBOX = os.environ.get("ARENA_SANDBOX")
 STATE = os.environ.get("ARENA_STATE") or (os.path.join(_SANDBOX, "game.pkl") if _SANDBOX else "/tmp/arena_game.pkl")
 APP_LIVE = os.path.join(_SANDBOX, "app_live") if _SANDBOX else "app/live"      # spectator page reads this
 PLAY_LIVE = os.path.join(_SANDBOX, "play_live") if _SANDBOX else "play/live"   # per-seat prompt/decision files
+ARCHIVE = os.path.join(_SANDBOX, "archive") if _SANDBOX else "play/archive"   # earlier games, one folder each
 DECK = "Arena牌堆表.xlsx"
 
 ZONE_BY_NAME = {"forest": Zone.N, "林": Zone.N, "water": Zone.E, "水": Zone.E,
@@ -63,6 +64,38 @@ def _save(eng):
 def _load():
     with open(STATE, "rb") as f:
         return pickle.load(f)
+
+
+def game_status():
+    """The saved live game in brief, or None when there is none."""
+    if not os.path.exists(STATE):
+        return None
+    eng = _load()
+    over = getattr(eng, "phase", "start") == "over" or bool(getattr(eng, "game_over", False))
+    return {"over": over, "round": eng.state.round_no, "players": len(eng.state.players),
+            "humans": len(getattr(eng, "humans", {})), "alive": len(eng.alive_players())}
+
+
+def archive_current():
+    """Copy the live game (save, spectator export, seat files) into its own ARCHIVE folder,
+    so starting a new game never loses it. -> the folder, or None when there is no game."""
+    import shutil
+    import time
+    if not os.path.exists(STATE):
+        return None
+    st = game_status()
+    dest = os.path.join(ARCHIVE, time.strftime("%Y%m%d-%H%M%S") +
+                        f"-{st['players']}p-r{st['round']}" + ("" if st["over"] else "-unfinished"))
+    n, base = 1, dest
+    while os.path.exists(dest):
+        n += 1
+        dest = f"{base}-{n}"
+    os.makedirs(dest)
+    shutil.copy2(STATE, os.path.join(dest, "game.pkl"))
+    for src, name in ((APP_LIVE, "app_live"), (PLAY_LIVE, "play_live")):
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(dest, name))
+    return dest
 
 
 def _pick_humans(n, seats, count, rng):

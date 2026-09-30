@@ -1,14 +1,11 @@
-"""Minimal local web app for Arena: a button to run a new bot game and watch it.
+"""Minimal local web app for Arena: start a live human+AI game, watch it (/), play a seat (/play.html).
 
 Zero dependencies (stdlib http.server). Reuses the real engine.
 Run:  python3 app/server.py          (serves http://localhost:8000)
 """
-import asyncio
 import json
 import os
-import random
 import sys
-from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -17,62 +14,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)                              # play/session.py uses project-relative paths
 
-from arena.setup import new_game            # noqa: E402
-from arena.players.bots import SmartBot     # noqa: E402
 from app import human_api                   # noqa: E402
 
 DECK = os.path.join(ROOT, "Arena牌堆表.xlsx")
 PORT = int(os.environ.get("ARENA_PORT", "8000"))
 HOST = os.environ.get("ARENA_HOST", "127.0.0.1")
-
-
-ZONE_NAME = {"center": "center", "n": "forest", "e": "water", "s": "stone", "w": "city"}
-
-
-def _snapshot(eng, round_no):
-    return {"round": round_no, "open_zones": [z.value for z in eng.state.open_zones],
-            "players": [{"seat": p.seat, "zone": p.zone.value, "hp": p.hp, "alive": p.alive,
-                         "equipped": p.equipped_weapon.name if p.equipped_weapon else None,
-                         "eq_atk": p.equipped_weapon.value if p.equipped_weapon else 0,
-                         "hand": [c.name for c in p.hand]} for p in eng.state.players]}
-
-
-def run_game(players: int, seed: int) -> dict:
-    from arena import config
-    rng = random.Random(seed)
-    eng = new_game(players, rng, lambda: SmartBot(rng), data_path=DECK)
-    roster = [{"seat": p.seat, "name": p.character.name,
-               "hp_max": p.character.hp_max, "attack": p.character.base_attack,
-               "identity": p.identity} for p in eng.state.players]
-
-    # play round by round, capturing a state snapshot after each round
-    snapshots = [_snapshot(eng, 0)]                      # round 0 = starting placement
-    outcome, survivor = "capped", None
-    while True:
-        w = eng.check_winner()
-        if w is not None:
-            outcome, survivor = {-1: ("draw", None), eng.LOVERS_WIN: ("lovers", None)}.get(w, ("win", w))
-            break
-        if eng.state.round_no > config.ROUND_CAP:
-            alive = eng.alive_players()
-            survivor = max(alive, key=lambda p: p.hp).seat if alive else None
-            outcome = "capped"
-            break
-        asyncio.run(eng.play_round())
-        snapshots.append(_snapshot(eng, eng.state.round_no - 1))
-
-    events = [{"type": e.type, "round": e.round_no, "actor": e.actor,
-               "visibility": e.visibility, "payload": e.payload} for e in eng.log.events]
-    winners = eng.identity_winners()
-    return {
-        "roster": roster,
-        "events": events,
-        "snapshots": snapshots,
-        "winners": {str(k): v for k, v in winners.items()},
-        "outcome": outcome,
-        "rounds": eng.state.round_no - 1,
-        "survivor": survivor,
-    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -89,14 +35,6 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             with open(os.path.join(os.path.dirname(__file__), "index.html"), encoding="utf-8") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
-        elif u.path == "/api/new_game":
-            q = parse_qs(u.query)
-            players = max(5, min(12, int(q.get("players", ["6"])[0])))
-            seed = int(q.get("seed", [str(random.randint(0, 10**6))])[0])
-            try:
-                self._send(200, json.dumps({"seed": seed, **run_game(players, seed)}, ensure_ascii=False))
-            except Exception as ex:  # surface engine errors to the page
-                self._send(500, json.dumps({"error": str(ex)}, ensure_ascii=False))
         elif u.path.startswith("/live/"):
             fp = os.path.join(os.path.dirname(__file__), "live", os.path.basename(u.path))
             if os.path.exists(fp):
@@ -107,6 +45,9 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/play.html":
             with open(os.path.join(os.path.dirname(__file__), "play.html"), encoding="utf-8") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif u.path == "/api/live_status":
+            code, body = human_api.live_status()
+            self._send(code, json.dumps(body, ensure_ascii=False))
         elif u.path == "/api/my_seats":
             code, body = human_api.my_seats(self._local())
             self._send(code, json.dumps(body, ensure_ascii=False))
@@ -133,10 +74,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/new_live_game":
             q = parse_qs(u.query)
             try:
-                players, humans = int(q.get("players", ["6"])[0]), int(q.get("humans", ["1"])[0])
+                humans, ai = int(q.get("humans", ["1"])[0]), int(q.get("ai", ["5"])[0])
             except ValueError:
                 return self._send(400, json.dumps({"error": "人数要是数字"}, ensure_ascii=False))
-            code, out = human_api.new_live_game(self._local(), players, humans)
+            code, out = human_api.new_live_game(self._local(), humans, ai,
+                                                force=q.get("force", ["0"])[0] == "1")
             return self._send(code, json.dumps(out, ensure_ascii=False))
         if u.path != "/api/decision":
             return self._send(404, json.dumps({"error": "not found"}))

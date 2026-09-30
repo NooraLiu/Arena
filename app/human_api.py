@@ -95,23 +95,37 @@ def my_seats(local):
                            for s, k in sorted(getattr(eng, "humans", {}).items())]}
 
 
-def new_live_game(local, players, humans, seed=None):
-    """Start a fresh live game (replacing the current one) with `humans` random human seats;
-    the rest are AI seats. Only from this computer, since it throws away the running game."""
+def new_live_game(local, humans, ai, force=False, seed=None):
+    """Start a fresh live game with `humans` random human seats and `ai` AI seats.
+    A game still in progress is never replaced silently: without `force` the answer is 409 and
+    nothing changes. Whatever was there (finished or not) is archived first, never deleted.
+    Only from this computer."""
     import argparse
     import contextlib
     import io
     import random
     if not local:
         return 403, {"error": "只有在运行服务器的这台电脑上才能开新局"}
-    if not 5 <= players <= 12 or not 0 <= humans <= players:
-        return 400, {"error": f"人数要在 5~12 之间,人类玩家 0~{players} 名"}
+    players = humans + ai
+    if humans < 0 or ai < 0 or not 5 <= players <= 12:
+        return 400, {"error": f"人类 + AI 一共要 5~12 人(现在 {players} 人)"}
     seed = random.randint(0, 10**6) if seed is None else seed
     with LOCK:
+        cur = S.game_status()
+        if cur and not cur["over"] and not force:
+            return 409, {"error": "in_progress", **cur}
+        archived = S.archive_current()
         with contextlib.redirect_stdout(io.StringIO()):     # init prints links meant for the CLI
             S.cmd_init(argparse.Namespace(players=players, seed=seed, humans=humans,
                                           human_seats=None, decisions=None))
         eng = S._load()
-    return 200, {"seed": seed, "all_human": _all_human(eng),
+        eng.seed = seed
+        S._save(eng)
+    return 200, {"seed": seed, "all_human": _all_human(eng), "archived": archived,
                  "seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
                            for s, k in sorted(eng.humans.items())]}
+
+
+def live_status():
+    with LOCK:
+        return 200, {"game": S.game_status()}

@@ -116,3 +116,11 @@ def test_eat_is_offered_with_food_and_happens_before_the_main_action(live):
     kinds = [e.type for e in eng.log.events if e.actor == 0]
     assert kinds.index("heal") < kinds.index("draw")
     assert eng._p(0).hp == 10 and food not in eng._p(0).hand
+
+
+def test_eat_accepts_a_card_name_as_well_as_an_id():
+    from arena.models import Card, CardType, EatFood
+    eng = _game([Zone.N, Zone.E, Zone.S, Zone.W, Zone.CENTER, Zone.CENTER])
+    eng.state.players[0].hand = [Card("林03-n0", CardType.FOOD, 2, name="死兔子")]
+    a = S._parse_extra(eng, 0, "eat:死兔子")
+    assert isinstance(a, EatFood) and a.card_id == "林03-n0"

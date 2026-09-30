@@ -977,7 +977,11 @@ def _parse_extra(eng, seat, x):
     if k == "bomb":
         return PlantBomb(_zone(rest))
     if k == "eat":
-        return EatFood(rest.strip())
+        cid = rest.strip()
+        hand = eng._p(seat).hand
+        if not any(c.id == cid for c in hand):          # agents sometimes write the card's name
+            cid = next((c.id for c in hand if c.name == cid and c.type == CardType.FOOD), cid)
+        return EatFood(cid)
     return None
 
 
@@ -999,7 +1003,7 @@ def cmd_actphase(args):
             _apply_talk(eng, p.seat, d, "act")
         extras = [str(x) for x in (d.get("extra") or [])]
         for x in [x for x in extras if x.startswith("eat:")]:     # eating comes before the main action
-            eng._apply_additional(p, EatFood(x[4:].strip()))
+            eng._apply_additional(p, _parse_extra(eng, p.seat, x))
         eng._maybe_heal(p)
         atk = build_observation(eng, p.seat).attackable_seats
         act = str(d.get("action", "draw"))

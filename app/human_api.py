@@ -25,6 +25,8 @@ def _clean(d, phase):
     out = {"move": d["move"], "say": d.get("say") or [], "memo": d.get("memo", "")}
     if phase == "act":
         out = {"action": d.get("action", "draw"), "extra": d.get("extra") or [], **out}
+        if isinstance(d.get("roll"), list) and str(out["action"]).startswith("attack:"):
+            out["roll"] = [int(v) for v in d["roll"]]
     return out
 
 
@@ -95,7 +97,7 @@ def my_seats(local):
                            for s, k in sorted(getattr(eng, "humans", {}).items())]}
 
 
-def new_live_game(local, humans, ai, force=False, seed=None):
+def new_live_game(local, humans, ai, force=False, seed=None, mode="simultaneous"):
     """Start a fresh live game with `humans` random human seats and `ai` AI seats.
     A game still in progress is never replaced silently: without `force` the answer is 409 and
     nothing changes. Whatever was there (finished or not) is archived first, never deleted.
@@ -117,11 +119,12 @@ def new_live_game(local, humans, ai, force=False, seed=None):
         archived = S.archive_current()
         with contextlib.redirect_stdout(io.StringIO()):     # init prints links meant for the CLI
             S.cmd_init(argparse.Namespace(players=players, seed=seed, humans=humans,
-                                          human_seats=None, decisions=None))
+                                          human_seats=None, decisions=None,
+                                          mode=S.BOARD if mode == S.BOARD else "simultaneous"))
         eng = S._load()
         eng.seed = seed
         S._save(eng)
-    return 200, {"seed": seed, "all_human": _all_human(eng), "archived": archived,
+    return 200, {"seed": seed, "all_human": _all_human(eng), "archived": archived, "mode": eng.mode,
                  "seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
                            for s, k in sorted(eng.humans.items())]}
 

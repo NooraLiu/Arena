@@ -455,8 +455,9 @@ class Engine:
                                {"got": card.id if card else None}))
         return card
 
-    def _apply(self, p: PlayerState, action, forced: bool = False):
-        """forced: an attack the center rule made (doesn't count against the Pacifist)."""
+    def _apply(self, p: PlayerState, action, forced: bool = False, dice=None):
+        """forced: an attack the center rule made (doesn't count against the Pacifist).
+        dice: the attack dice a human already rolled on their page (None: the engine rolls)."""
         skill = self._skill(p)
         if isinstance(action, Draw):
             alone = not any(q.alive and q.seat != p.seat and q.zone == p.zone
@@ -471,7 +472,7 @@ class Engine:
             bonus = self._skill(defender).damage_reduction(defender, defender.zone)
             res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION,
                                  bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p),
-                                 rolls=skill.attack_rolls(p))
+                                 rolls=skill.attack_rolls(p), preset=dice)
             if not forced:
                 self._note_violence(p.seat)
             self.last_attacker[defender.seat] = p.seat

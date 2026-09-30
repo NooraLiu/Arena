@@ -78,7 +78,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 return self._send(400, json.dumps({"error": "人数要是数字"}, ensure_ascii=False))
             code, out = human_api.new_live_game(self._local(), humans, ai,
-                                                force=q.get("force", ["0"])[0] == "1")
+                                                force=q.get("force", ["0"])[0] == "1",
+                                                mode=q.get("mode", ["simultaneous"])[0])
             return self._send(code, json.dumps(out, ensure_ascii=False))
         if u.path != "/api/decision":
             return self._send(404, json.dumps({"error": "not found"}))

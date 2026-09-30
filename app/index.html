@@ -61,6 +61,7 @@
   <label>人类玩家 <select id="humans"></select></label>
   <label>AI 玩家 <select id="ais"></select></label>
   <span id="total" style="color:var(--dim);font-size:13px"></span>
+  <label>模式 <select id="mode"><option value="board" selected>桌游模式(轮流行动)</option><option value="simultaneous">快速模式(同时提交)</option></select></label>
   <button id="goLive">开始新一局</button>
   <button id="load" class="ghost">停止自动刷新</button>
   <button id="cfgBtn" class="ghost">⚙ 每座位模型</button>
@@ -287,7 +288,8 @@ function showTotal(){const n=+HSEL.value + +ASEL.value, ok=n>=5&&n<=12;
 const goLive=document.getElementById("goLive");
 HSEL.addEventListener("change",showTotal); ASEL.addEventListener("change",showTotal); showTotal();
 async function newGame(h,a,force){
-  const r=await fetch(`/api/new_live_game?humans=${h}&ai=${a}${force?"&force=1":""}`,{method:"POST"});return r.json();}
+  const m=document.getElementById("mode").value;
+  const r=await fetch(`/api/new_live_game?humans=${h}&ai=${a}&mode=${m}${force?"&force=1":""}`,{method:"POST"});return r.json();}
 goLive.addEventListener("click",async()=>{
   const h=+HSEL.value, a=+ASEL.value, st=document.getElementById("status");
   goLive.disabled=true;

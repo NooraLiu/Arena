@@ -206,6 +206,7 @@ def human_view(eng, seat):
     me = {"name": p.character.name, "desc": _descriptions().get(p.character.name, ""),
           "hp": p.hp, "hp_max": p.character.hp_max,
           "base_attack": p.character.base_attack, "attack": S._atk(p),
+          "attack_rolls": eng._skill(p).attack_rolls(p),
           "skill": S.SKILL_TXT.get(p.character.name, ""), "zone": None if blind else S.NAME_BY_ZONE[p.zone],
           "hand": [_card(c) for c in p.hand],
           "equipped": _card(p.equipped_weapon) if p.equipped_weapon else None,
@@ -218,6 +219,9 @@ def human_view(eng, seat):
                 for m in eng.visible_messages(seat)][-40:]
     events = [line for line in (S._event_line(e) for e in eng.log.events) if line][-30:]
     view = {"seat": seat, "round": st.round_no, "phase": ph, "status": status,
+            "mode": getattr(eng, "mode", "simultaneous"),
+            "turn_order": [s for s in getattr(eng, "act_order", [])] if ph == "act" and S._board(eng) else [],
+            "acted": sorted(getattr(eng, "act_done", set())) if ph == "act" and S._board(eng) else [],
             "open_zones": _names(st.open_zones),
             "deck_left": {S.NAME_BY_ZONE[z]: len(st.decks.get(z, [])) for z in st.open_zones},
             "feast_active": st.feast_active, "feast_next": st.feast_next,
@@ -328,6 +332,13 @@ def validate_decision(eng, seat, phase, d):
                 ok = False
             if not ok:
                 errs.append(f"不能攻击 {act.split(':', 1)[1]}(可攻击: {opts['attack'] or '无'})")
+            roll = d.get("roll")
+            if roll is not None:                     # dice rolled on the page; missing = the engine rolls
+                p = eng._p(seat)
+                n, faces = eng._skill(p).attack_rolls(p), S._atk(p)
+                if not (isinstance(roll, list) and len(roll) == n
+                        and all(isinstance(v, int) and 1 <= v <= faces for v in roll)):
+                    errs.append(f"骰子要掷 {n} 颗 d{faces},每颗 1~{faces}")
         else:
             errs.append("主行动只能是 draw 或 attack:座位")
         extra = d.get("extra") or []

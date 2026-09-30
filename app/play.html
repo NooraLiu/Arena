@@ -88,6 +88,23 @@
   .ghost-btn{font:inherit;font-size:12.5px;color:var(--dim);background:none;border:1px dashed var(--line);border-radius:9px;padding:4px 10px;cursor:pointer}
   details pre{white-space:pre-wrap;font:12.5px/1.55 -apple-system,"PingFang SC",sans-serif;color:#cdd3f0;max-height:420px;overflow:auto}
   a{color:var(--zone)}
+  /* dice: a d-N die is an N-sided polygon (d2 is a coin); the face it lands on is the damage */
+  .dice{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin:8px 0 2px}
+  .die{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .die svg{width:64px;height:64px;overflow:visible}
+  .die .shape{fill:var(--card2);stroke:var(--weapon);stroke-width:3;stroke-linejoin:round}
+  .die .num{fill:var(--ink);font:700 24px -apple-system,"PingFang SC",sans-serif;text-anchor:middle;dominant-baseline:central}
+  .die .dn{font-size:11px;color:var(--dim)}
+  .die.best .shape{stroke:var(--win);stroke-width:4}
+  .die.coin .shape{stroke:var(--win)}
+  .die.rolling svg{animation:tumble 1.1s cubic-bezier(.2,.7,.3,1)}
+  .die.coin.rolling svg{animation:flip 1.1s cubic-bezier(.2,.7,.3,1)}
+  @keyframes tumble{0%{transform:rotate(0) scale(.8)}60%{transform:rotate(600deg) scale(1.15)}100%{transform:rotate(720deg) scale(1)}}
+  @keyframes flip{0%{transform:rotateY(0) translateY(0)}50%{transform:rotateY(900deg) translateY(-26px)}100%{transform:rotateY(1800deg) translateY(0)}}
+  @media (prefers-reduced-motion: reduce){.die.rolling svg,.die.coin.rolling svg{animation:none}}
+  .roll-btn{font:inherit;font-weight:700;color:#fff;background:#8a5a12;border:1px solid var(--weapon);border-radius:10px;padding:8px 16px;cursor:pointer}
+  .roll-btn:disabled{opacity:.5;cursor:default}
+  .dmg{font-size:15px;font-weight:700;color:var(--win)}
 </style>
 </head>
 <body>
@@ -151,6 +168,51 @@ async function poll() {
   } catch (e) { $("fatal").textContent = "连不上服务器,重试中…"; }
 }
 
+/* ---------- dice ---------- */
+let ROLLING = false;
+const rollKey = () => `arena_roll_${V.step || (V.round + "_" + V.phase)}_${V.seat}`;
+function savedRoll() { try { const v = JSON.parse(localStorage.getItem(rollKey()) || "null"); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
+function keepRoll(v) { try { localStorage.setItem(rollKey(), JSON.stringify(v)); } catch (e) {} }
+function randInt(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); return 1 + (a[0] % n); }
+function dieSVG(faces, value) {
+  if (faces <= 2) return `<svg viewBox="-34 -34 68 68"><circle class="shape" r="28"></circle><circle r="22" fill="none" stroke="var(--line)" stroke-width="1.5"></circle><text class="num">${value ?? "?"}</text></svg>`;
+  const n = Math.min(faces, 12), r = 30, pts = [];
+  for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / n; pts.push(`${(r * Math.cos(a)).toFixed(1)},${(r * Math.sin(a)).toFixed(1)}`); }
+  return `<svg viewBox="-34 -34 68 68"><polygon class="shape" points="${pts.join(" ")}"></polygon><text class="num">${value ?? "?"}</text></svg>`;
+}
+function diceHTML(faces, n, values) {
+  const best = values ? Math.max(...values) : null;
+  const dice = Array.from({length: n}, (_, i) => {
+    const v = values ? values[i] : null;
+    const cls = `die ${faces <= 2 ? "coin" : ""} ${values && n > 1 && v === best && values.indexOf(v) === i ? "best" : ""}`;
+    return `<div class="${cls}" data-die="${i}">${dieSVG(faces, v)}<span class="dn">${faces <= 2 ? "硬币 d2" : "d" + faces}</span></div>`;
+  }).join("");
+  return `<div class="dice">${dice}</div>`;
+}
+function diceBlock() {
+  const m = V.me, faces = m.attack, n = m.attack_rolls || 1, roll = FORM.roll;
+  let h = `<div class="sec"><div class="lbl">🎲 攻击掷骰:d${faces}${n > 1 ? `,技能让你掷 ${n} 颗取较大的` : ""}${faces <= 2 ? "(抛硬币:正面 1,反面 2)" : ""}</div>`;
+  h += `<div id="diceArea">${diceHTML(faces, n, roll)}</div>`;
+  h += roll ? `<div class="dmg">掷出 ${Math.max(...roll)} → 造成 ${Math.max(...roll)} 点伤害</div>`
+            : `<button type="button" class="roll-btn" id="rollBtn">🎲 点我掷骰子</button> <span class="k">掷完才能提交;掷出几就是几点伤害,不能重掷</span>`;
+  return h + `</div>`;
+}
+function rollDice() {
+  if (ROLLING || FORM.roll) return;
+  const faces = V.me.attack, n = V.me.attack_rolls || 1;
+  const final = Array.from({length: n}, () => randInt(faces));
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const done = () => { FORM.roll = final; keepRoll(final); ROLLING = false; touch(); renderForm(); };
+  if (reduce) return done();
+  ROLLING = true;
+  $("rollBtn").disabled = true;
+  document.querySelectorAll("#diceArea .die").forEach(d => d.classList.add("rolling"));
+  const t0 = Date.now(), tick = setInterval(() => {
+    document.querySelectorAll("#diceArea .num").forEach(x => x.textContent = randInt(faces));
+    if (Date.now() - t0 > 1050) { clearInterval(tick); done(); }
+  }, 70);
+}
+
 /* ---------- form state ---------- */
 function blankForm() {
   const o = V.options;
@@ -160,10 +222,12 @@ function blankForm() {
     f.move = o.moves.includes(here) ? here : o.moves[0];
     if (o.kind === "act") f.action = o.forced_attack ? "attack:" + o.attack[0] : "draw";
   }
+  f.roll = V.options && V.options.kind === "act" ? savedRoll() : null;
   return f;
 }
 function fromSubmitted(f, d) {
   if (d.move) f.move = d.move;
+  if (Array.isArray(d.roll)) f.roll = d.roll;
   if (d.action) f.action = d.action;
   if (typeof d.memo === "string") f.memo = d.memo;
   (d.say || []).slice(0, 2).forEach((m, i) => { f.says[i] = {to: m.to === undefined || m.to === null ? "all" : m.to, text: m.text || ""}; });
@@ -196,7 +260,9 @@ function render() {
   $("round").textContent = `第 ${V.round} 回合 · ${PHASE[V.phase] || V.phase}`;
   $("status").textContent = STATUS[V.status] || V.status;
   $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
-  $("zones").textContent = [V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
+  const order = (V.turn_order || []), cur = order.find(s => !(V.acted || []).includes(s) && (pl(s) || {}).alive);
+  const turn = order.length ? "🎲 桌游模式 · 行动顺序:" + order.map(s => (V.acted || []).includes(s) ? `s${s}✓` : s === cur ? `▶s${s}` : `s${s}`).join(" ") : "";
+  $("zones").textContent = [turn, V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
   renderMap(); renderMe(); renderMsgs(); renderForm(); renderReflect(); renderResult();
   $("brief").textContent = V.brief;
 }
@@ -280,6 +346,7 @@ function renderMsgs() {
 const chip = (attr, val, label, on, extra = "") => `<button type="button" class="chip ${extra} ${on ? "on" : ""}" ${attr}="${esc(val)}">${label}</button>`;
 
 function renderForm() {
+  if (ROLLING) return;
   const o = V.options;
   if (!o || !FORM) { $("formPanel").style.display = "none"; return; }
   $("formPanel").style.display = "";
@@ -289,6 +356,7 @@ function renderForm() {
     h += `<div class="sec"><div class="lbl">主行动${o.forced_attack ? " · 你在中心,必须攻击" : ""}</div><div class="chips">
       ${o.forced_attack ? "" : chip("data-act", "draw", "🃏 抽一张本区牌", FORM.action === "draw")}
       ${o.attack.map(s => chip("data-act", "attack:" + s, "⚔️ 攻击 " + nm(s), FORM.action === "attack:" + s)).join("")}</div></div>`;
+    if (String(FORM.action).startsWith("attack:")) h += diceBlock();
     const xs = o.extras.filter(x => x.kind !== "eat");
     const eats = [...FORM.eat].map(id => (V.me.hand.find(c => c.id === id) || {name: id}).name);
     h += `<div class="sec"><div class="lbl">附加行动(可选)</div>`;
@@ -313,6 +381,7 @@ function renderForm() {
   ["say0", "say1"].forEach((id, i) => $(id).oninput = (e) => { FORM.says[i].text = e.target.value; touch(); });
   $("memo").oninput = (e) => { FORM.memo = e.target.value; touch(); };
   $("f_go").onclick = submit;
+  if ($("rollBtn")) $("rollBtn").onclick = rollDice;
 }
 
 function xBox(x) {
@@ -365,6 +434,7 @@ function collect() {
   FORM.says.forEach(s => { const t = s.text.trim(); if (t) d.say.push({to: s.to, text: t}); });
   if (o.kind === "act") {
     d.action = FORM.action;
+    if (String(FORM.action).startsWith("attack:") && FORM.roll) d.roll = FORM.roll;
     d.extra = [...FORM.eat].map(id => "eat:" + id);
     Object.entries(FORM.extras).forEach(([k, e]) => {
       if (!e.on) return;
@@ -385,6 +455,9 @@ async function post(body) {
 }
 
 async function submit() {
+  if (V.options && V.options.kind === "act" && String(FORM.action).startsWith("attack:") && !FORM.roll) {
+    $("f_err").textContent = "先点「掷骰子」掷出伤害,再提交。"; return;
+  }
   $("f_go").disabled = true; $("f_err").textContent = ""; $("f_ok").textContent = "";
   let code, r;
   try { [code, r] = await post(collect()); } catch (e) { code = 0; r = {error: "连不上服务器,稍后再试"}; }

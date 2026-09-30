@@ -122,6 +122,7 @@ def cmd_init(args):
     eng.briefs = {p.seat: _brief(eng, p.seat, guide, eng.styles[p.seat], table) for p in eng.state.players}
     eng.card_names = {c.id: c.name for cards in eng.state.decks.values() for c in cards}
     eng.humans = _pick_humans(n, getattr(args, "human_seats", None), getattr(args, "humans", 0) or 0, rng)
+    eng.mode = getattr(args, "mode", None) or "simultaneous"   # or BOARD (桌游模式)
     eng.phase = "start"
     eng.game_over = False
     import shutil
@@ -421,7 +422,8 @@ PROMPT_DIR = f"{PLAY_LIVE}/prompts"      # one private file per seat: s{seat}.tx
 DECISION_DIR = f"{PLAY_LIVE}/decisions"  # the seat's agent writes s{seat}.json here
 HUMAN_DIR = f"{PLAY_LIVE}/human"        # human seats' reflections (play/human.py, app/human_api.py)
 
-PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal", "scimitar")
+PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal",
+             "scimitar", "draw", "heal")
 
 
 def _memos(eng):
@@ -508,7 +510,11 @@ def _extras(eng, p):
 def _plan(eng, phase):
     """-> (auto: {seat: decision}, ask: [seats])"""
     auto, ask = {}, []
+    board_act = phase == "act" and _board(eng)
+    cur = _board_current(eng) if board_act else None
     for p in eng.alive_players():
+        if board_act and p.seat != cur:
+            continue
         if phase == "move":
             legal = _legal_zones(eng, p)
             planned = _planned(eng).get(p.seat)
@@ -603,7 +609,14 @@ def _event_line(e):
     pl = e.payload or {}
     r = f"r{e.round_no}"
     if e.type == "attack":
-        return f"{r} s{e.actor}→s{pl['target']} 伤{pl['damage']}"
+        dice = pl.get("dice") or [pl.get("roll")]
+        rolled = f"掷d{pl['faces']}=" + ("/".join(map(str, dice)) + f"取{pl['roll']}" if len(dice) > 1 else str(pl['roll'])) \
+            if pl.get("faces") else ""
+        return f"{r} s{e.actor}→s{pl['target']} {rolled} 伤{pl['damage']}".replace("  ", " ")
+    if e.type == "draw":
+        return f"{r} s{e.actor} 抽了 1 张牌" if pl.get("got") else f"{r} s{e.actor} 抽牌落空"
+    if e.type == "heal":
+        return f"{r} s{e.actor} 吃了东西(→{pl.get('hp')}血)"
     if e.type == "eliminated":
         return f"{r} ☠ s{e.actor} 淘汰"
     if e.type == "random_event":
@@ -693,6 +706,11 @@ def _prompt(eng, seat, phase):
         L.append(f"本区同伴: {', '.join(f's{q.seat}' for q in mates) or '无'} · 可攻击: {atk or '无'}")
         if p.zone == Zone.CENTER and atk:
             L.append("你在中心区:必须攻击(自己选目标),攻击后自动抽 1 张中心牌。")
+        if _board(eng):
+            before = [s for s in eng.act_order if s in eng.act_done]
+            L.append("【桌游模式】本回合按座位轮流行动。在你之前已经行动的: "
+                     + (", ".join(f"s{s}" for s in before) or "无(你是第一个)")
+                     + "——他们刚做的事在上面的【近期公开事件】里。")
         ex = _extras(eng, p)
         L.append(f"可用附加行动: {', '.join(ex) if ex else '无'}"
                  + (_DECLARE_HINT.get(p.identity, "")))
@@ -870,6 +888,8 @@ def advance(max_steps=500):
             cmd_plan(_ns(phase="move"))
             continue
         need = sorted(getattr(eng, "pending_reflect", {}) or {}) if ph == "reflect" else _plan(eng, ph)[1]
+        if ph == "act" and _board(eng) and _board_current(eng) is None:
+            need = []                                  # everyone has acted: close the phase
         have = set(_load_decisions(_ns()))
         missing = [s for s in need if s not in have]
         if missing:
@@ -883,6 +903,8 @@ def advance(max_steps=500):
         elif ph == "move":
             cmd_movephase(_ns())
             cmd_plan(_ns(phase="act"))
+        elif _board(eng):
+            _board_step(eng)
         else:
             cmd_actphase(_ns())
             cmd_endround(_ns())
@@ -899,20 +921,31 @@ def cmd_plan(args):
     eng = _load()
     if getattr(eng, "pending_reflect", None):
         _absorb_reflections(eng)
-    auto, ask = _plan(eng, args.phase)
     humans = getattr(eng, "humans", {})
     for d in (PROMPT_DIR, DECISION_DIR):
         shutil.rmtree(d, ignore_errors=True)
         os.makedirs(d, exist_ok=True)
-    for seat in ask:
-        if seat in humans:
-            continue                                   # humans read /api/view instead
-        with open(f"{PROMPT_DIR}/s{seat}.txt", "w", encoding="utf-8") as f:
-            f.write(_prompt(eng, seat, args.phase))
+    if args.phase == "act" and _board(eng):          # 桌游模式: seats act in turn, starting now
+        st = eng.state
+        eng.act_order = [q.seat for q in sorted(eng.alive_players(), key=lambda q: (q.seat - st.first_seat) % 100)]
+        eng.act_done, eng.act_auto = set(), {}
+    auto, ask = _plan(eng, args.phase)
+    _write_prompts(eng, ask, args.phase)
     eng.phase = args.phase
     _save(eng)
     print(json.dumps({"auto": {str(k): v for k, v in auto.items()}, "ask": ask,
                       "humans": [s for s in ask if s in humans]}, ensure_ascii=False))
+
+
+def _write_prompts(eng, seats, phase):
+    """Each asked AI seat's private prompt, in its own file (humans read /api/view instead)."""
+    humans = getattr(eng, "humans", {})
+    os.makedirs(PROMPT_DIR, exist_ok=True)
+    for seat in seats:
+        if seat in humans:
+            continue
+        with open(f"{PROMPT_DIR}/s{seat}.txt", "w", encoding="utf-8") as f:
+            f.write(_prompt(eng, seat, phase))
 
 
 RULES_FILE = ".claude/agents/arena-player.md"
@@ -1041,6 +1074,73 @@ def _parse_extra(eng, seat, x):
     return None
 
 
+def _act_one(eng, p, d, answered):
+    """One seat's whole turn in the action phase: eat, main action (with the dice a human
+    rolled on their page, if any), then the other additional actions."""
+    if answered:
+        _apply_talk(eng, p.seat, d, "act")
+    extras = [str(x) for x in (d.get("extra") or [])]
+    for x in [x for x in extras if x.startswith("eat:")]:     # eating comes before the main action
+        eng._apply_additional(p, _parse_extra(eng, p.seat, x))
+    eng._maybe_heal(p)
+    atk = build_observation(eng, p.seat).attackable_seats
+    act = str(d.get("action", "draw"))
+    tgt = _seat(act.split(":")[1]) if act.startswith("attack:") else None
+    dice = d.get("roll") if isinstance(d.get("roll"), list) else None
+    if p.zone == Zone.CENTER and atk:                  # forced fight + center draw
+        eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)), forced=True, dice=dice)
+        eng.center_draw(p)
+    elif tgt in atk:
+        eng._apply(p, Attack(tgt), dice=dice)
+    else:
+        eng._apply(p, Draw())
+    for x in [x for x in extras if not x.startswith("eat:")]:
+        if str(x).startswith("declare:"):
+            _apply_declare(eng, p.seat, str(x)[len("declare:"):])
+            continue
+        try:
+            a = _parse_extra(eng, p.seat, x)
+        except (ValueError, KeyError):
+            print(f"! s{p.seat} 附加行动写法看不懂,跳过: {x}")
+            a = None
+        if a is not None:
+            eng._apply_additional(p, a)
+
+
+BOARD = "board"          # 桌游模式: the action phase goes seat by seat, each seeing what came before
+
+
+def _board(eng):
+    return getattr(eng, "mode", "simultaneous") == BOARD
+
+
+def _board_current(eng):
+    """Board mode: the seat whose turn it is in this action phase, or None when all have acted."""
+    return next((s for s in getattr(eng, "act_order", []) if s not in eng.act_done and eng._p(s).alive), None)
+
+
+def _board_step(eng):
+    """Board mode: resolve the current seat if its decision is in (or it needs none).
+    -> True if a seat acted, False if waiting on it; ends the phase once everyone has acted."""
+    decisions = _load_decisions(_ns())
+    cur = _board_current(eng)
+    if cur is None:
+        _store_planned(eng, decisions, eng.act_auto)
+        _save(eng)
+        cmd_endround(_ns())
+        return True
+    auto, ask = _plan(eng, "act")
+    if ask and cur not in decisions:
+        return False
+    eng.act_auto.update(auto)
+    _act_one(eng, eng._p(cur), decisions.get(cur) or auto.get(cur) or {"action": "draw"}, cur in decisions)
+    eng.act_done.add(cur)
+    _save(eng)
+    _, ask = _plan(eng, "act")                         # the next seat's prompt shows this seat's turn
+    _write_prompts(eng, ask, "act")
+    return True
+
+
 def cmd_actphase(args):
     eng = _load()
     st = eng.state
@@ -1052,36 +1152,8 @@ def cmd_actphase(args):
     start = len(eng.log.events)
     order = sorted(eng.alive_players(), key=lambda q: (q.seat - st.first_seat) % 100)
     for p in order:
-        if not p.alive:
-            continue
-        d = decisions.get(p.seat) or auto.get(p.seat) or {"action": "draw"}
-        if p.seat in decisions:
-            _apply_talk(eng, p.seat, d, "act")
-        extras = [str(x) for x in (d.get("extra") or [])]
-        for x in [x for x in extras if x.startswith("eat:")]:     # eating comes before the main action
-            eng._apply_additional(p, _parse_extra(eng, p.seat, x))
-        eng._maybe_heal(p)
-        atk = build_observation(eng, p.seat).attackable_seats
-        act = str(d.get("action", "draw"))
-        tgt = _seat(act.split(":")[1]) if act.startswith("attack:") else None
-        if p.zone == Zone.CENTER and atk:                  # forced fight + center draw
-            eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)), forced=True)
-            eng.center_draw(p)
-        elif tgt in atk:
-            eng._apply(p, Attack(tgt))
-        else:
-            eng._apply(p, Draw())
-        for x in [x for x in extras if not x.startswith("eat:")]:
-            if str(x).startswith("declare:"):
-                _apply_declare(eng, p.seat, str(x)[len("declare:"):])
-                continue
-            try:
-                a = _parse_extra(eng, p.seat, x)
-            except (ValueError, KeyError):
-                print(f"! s{p.seat} 附加行动写法看不懂,跳过: {x}")
-                a = None
-            if a is not None:
-                eng._apply_additional(p, a)
+        if p.alive:
+            _act_one(eng, p, decisions.get(p.seat) or auto.get(p.seat) or {"action": "draw"}, p.seat in decisions)
     _store_planned(eng, decisions, auto)
     _save(eng)
     for e in eng.log.events[start:]:
@@ -1097,6 +1169,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     pi = sub.add_parser("init"); pi.add_argument("--players", type=int, default=5); pi.add_argument("--seed", type=int, default=0)
+    pi.add_argument("--mode", choices=["simultaneous", BOARD], default="simultaneous")
     pi.add_argument("--human-seats", dest="human_seats", default=None, help="e.g. 2,4")
     pi.add_argument("--humans", type=int, default=0, help="number of random human seats")
     sub.add_parser("snapshot")

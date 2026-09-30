@@ -1,14 +1,11 @@
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Arena 玩家席</title>
+<title>Arena 动画预览</title>
 <style>
   :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
         --hit:#ff6b6b;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;
-        --weapon:#EF9F27;--food:#1D9E75;--ammo:#378ADD;--armor:#888780;--violet:#7F77DD;}
+        --weapon:#EF9F27;--food:#1D9E75;--ammo:#378ADD;--armor:#888780;--violet:#7F77DD;
+        color-scheme:dark}   /* one deliberate dark look, same as the local 玩家席 */
   *{box-sizing:border-box}
+  html{background:var(--bg)}
   body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,"PingFang SC",system-ui,sans-serif}
   header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   h1{font-size:17px;margin:0 8px 0 0}
@@ -129,70 +126,39 @@
     box-shadow:0 6px 20px rgba(0,0,0,.45)}
   .fxbanner span{color:var(--dim);font-size:12px}
   .replay{font:inherit;font-size:11.5px;color:var(--dim);background:none;border:1px dashed var(--line);border-radius:8px;padding:1px 8px;cursor:pointer;margin-left:6px}
+
+  .demo-row{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
+  .note{color:var(--dim);font-size:12.5px;margin:0 0 10px;line-height:1.6}
+  .tray{max-width:none;height:240px}
+  main{max-width:820px}
+  .grid{grid-template-columns:1fr}
+  .mapwrap{margin-top:22px}
 </style>
-</head>
-<body>
-<header>
-  <h1>⚔️ Arena 玩家席</h1>
-  <span id="who" class="pill">连接中…</span>
-  <span id="round" class="pill"></span>
-  <span id="status" class="pill"></span>
-  <span id="zones" style="color:var(--dim);font-size:13px"></span>
-</header>
+<header><h1>⚔️ Arena 动画预览</h1><span class="pill">骰子 · 随机事件</span></header>
 <main>
-  <div id="fatal" class="err"></div>
-  <div id="notice" class="err"></div>
   <div class="grid">
     <div>
-      <div class="panel"><h3>地图 <span id="mapHint" class="k"></span><button type="button" class="replay" id="fxReplay" hidden>▶ 重播事件</button></h3><div class="mapwrap"><div class="map" id="map"></div><div id="fx"></div></div></div>
-      <div class="panel"><h3>角色介绍</h3><div id="me"></div>
-        <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px"><h3>秘密身份(只有你能看到)</h3><div id="ident"></div></div></div>
-      <div class="panel" id="formPanel" style="display:none"><h3 id="formTitle">你的决定</h3><div id="form"></div></div>
-      <div class="panel"><h3>消息</h3><div id="msgs" class="scroll"></div></div>
-      <div class="panel"><h3>公开事件</h3><div id="events" class="scroll"></div></div>
+      <div class="panel"><h3>攻击掷骰</h3>
+        <p class="note">攻击值 = 基础攻击 + 武器,掷几面的骰子,掷出几点就是几点伤害。d2 是硬币;d3 用六面骰印两遍 1-3;d5 三棱柱;d7 五棱柱;d4/d6/d8 是标准骰。Bram 掷两颗取较大的。</p>
+        <div class="demo-row" id="diceBtns"></div>
+        <div id="diceArea" class="tray"></div>
+        <div class="dmg" id="diceResult">选一种骰子,点一下就掷</div>
+      </div>
     </div>
     <div>
-      <div class="panel" id="reflectPanel" style="display:none"><h3>出局感悟</h3><div id="reflect"></div></div>
-      <div class="panel" id="resultPanel" style="display:none"><h3>对局结果</h3><div id="result"></div></div>
-      <div class="panel"><h3>我的最近动作</h3><div id="acts" class="scroll"></div></div>
-      <div class="panel"><details><summary>规则与我的开局简报</summary><pre id="brief"></pre></details></div>
+      <div class="panel"><h3>随机事件 <span class="k">(在被影响的区播放)</span></h3>
+        <p class="note">第 4/6/7/9 回合触发。大多数事件掷 d4 落在一个外区;火球打除中心和水区外的所有开放区;盛宴在中心。被打中的人头上会飘伤害。</p>
+        <div class="demo-row" id="evBtns"></div>
+        <div class="mapwrap"><div class="map" id="map"></div><div id="fx"></div></div>
+      </div>
     </div>
   </div>
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const Q = new URLSearchParams(location.search);
-const SEAT = Q.get("seat"), KEY = Q.get("key");
-const API = (p) => `${p}?seat=${encodeURIComponent(SEAT)}&key=${encodeURIComponent(KEY)}`;
+const $ = (id) => document.getElementById(id);
 const ZN = {center:"中心",forest:"林",water:"水",stone:"石",city:"城"};
 const ZC = {center:"zc",forest:"zn",water:"ze",stone:"zs",city:"zw"};
-const STATUS = {your_turn:"轮到你了",submitted:"已提交,等待其他人",waiting:"等待其他人",dead:"你已出局",over:"游戏结束"};
-const PHASE = {start:"准备中",move:"移动",act:"行动",reflect:"收感悟",over:"结束"};
-const XLABEL = {eat:"吃食物",trade:"交换(给同区玩家一张牌)",steal:"偷牌(掷 d4 出 4 成功)",craft:"合成武器",poison:"下毒(2 食物→毒食物)",peek:"偷看身份(每局一次)",feed:"喂食",bomb:"做炸弹"};
-const WICON = {"弓":"🏹","三叉戟":"🔱","斧子":"🪓","长剑":"🗡️","弯刀":"🗡️","双节棍":"🥢"};
-let REPICKED = false, V = null, SIG = "", EDITING = false, FORM = null, FORMKEY = "";
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const pl = (s) => V.players.find(p => p.seat === +s);
-const nm = (s) => { const p = pl(s); return esc(p ? `s${p.seat} ${p.name}` : `s${s}`); };
-const hpColor = (hp, max) => { const r = hp / max; return r > .5 ? "#1D9E75" : r > .25 ? "#EF9F27" : "#E24B4A"; };
-const icon = (c) => c.type === "weapon" ? (WICON[c.name] || "⚔️") : c.type === "food" ? "🍎" : c.type === "ammo" ? "🔩" : "🛡️";
-
-async function poll() {
-  try {
-    const r = await fetch(API("/api/view"), {cache: "no-store"});
-    const d = await r.json();
-    if (r.status === 403 && !REPICKED) { REPICKED = true; return pickSeat(); }   // old link: find this game's seat
-    if (!r.ok) { $("fatal").textContent = d.error || "读取失败"; return; }
-    $("fatal").textContent = "";
-    const sig = JSON.stringify(d);
-    if (sig === SIG) return;
-    SIG = sig; V = d;
-    syncForm();
-    render();
-  } catch (e) { $("fatal").textContent = "连不上服务器,重试中…"; }
-}
-
 /* ==== arena_fx.js (generated by app/fx/build.py) ==== */
 /* Arena dice + random-event effects, shared by app/play.html, app/artifact_play.html and the
    animation preview. Inlined into those pages by app/fx/build.py -- edit this file, then run it.
@@ -614,336 +580,27 @@ function playEvent(ev) {
 }
 /* ==== end arena_fx.js ==== */
 
-/* ---------- dice ---------- */
-let ROLLING = false;
-const rollKey = () => `arena_roll_${V.step || (V.round + "_" + V.phase)}_${V.seat}`;
-function savedRoll() { try { const v = JSON.parse(localStorage.getItem(rollKey()) || "null"); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
-function keepRoll(v) { try { localStorage.setItem(rollKey(), JSON.stringify(v)); } catch (e) {} }
-function diceBlock() {
-  const m = V.me, faces = m.attack, n = m.attack_rolls || 1, roll = FORM.roll;
-  let h = `<div class="sec"><div class="lbl">🎲 攻击掷骰:d${faces}${n > 1 ? `,技能让你掷 ${n} 颗取较大的` : ""}${faces <= 2 ? "(抛硬币:正面 1,反面 2)" : ""}</div>`;
-  h += `<div id="diceArea" class="tray"></div>`;
-  h += roll ? `<div class="dmg">掷出 ${Math.max(...roll)} → 造成 ${Math.max(...roll)} 点伤害</div>`
-            : `<button type="button" class="roll-btn" id="rollBtn">🎲 点我掷骰子</button> <span class="k">掷完才能提交;掷出几就是几点伤害,不能重掷</span>`;
-  return h + `</div>`;
-}
-function rollDice() {
-  if (ROLLING || FORM.roll) return;
-  const faces = V.me.attack, n = V.me.attack_rolls || 1;
-  const final = Array.from({length: n}, () => randInt(faces));
-  ROLLING = true;
-  $("rollBtn").disabled = true;
+/* demo: dice */
+const DEMO_DICE = [["硬币 d2", 2, 1], ["d3", 3, 1], ["d4", 4, 1], ["d5", 5, 1], ["d6", 6, 1], ["d7", 7, 1], ["d8", 8, 1], ["Bram 双骰 d4", 4, 2], ["Bram 双骰 d6", 6, 2]];
+let busy = false, pick = 4;
+function demoRoll(i) {
+  if (busy) return;
+  const [label, faces, n] = DEMO_DICE[i], final = Array.from({length: n}, () => randInt(faces));
+  busy = true; $("diceResult").textContent = `掷 ${label}…`;
   Dice3D.roll($("diceArea"), faces, n, final).then(() => {
-    FORM.roll = final; keepRoll(final); ROLLING = false; touch(); renderForm();
+    busy = false; const best = Math.max(...final);
+    $("diceResult").textContent = n > 1 ? `掷出 ${final.join(" 和 ")},取 ${best} → 造成 ${best} 点伤害` : `掷出 ${best} → 造成 ${best} 点伤害`;
   });
 }
-
-/* ---------- form state ---------- */
-function blankForm() {
-  const o = V.options;
-  const here = V.me.zone;
-  const f = {action: null, move: null, extras: {}, eat: new Set(), decl: {}, says: [{to: "all", text: ""}, {to: "all", text: ""}], memo: V.me.memo || "", declOpen: false};
-  if (o) {
-    f.move = o.moves.includes(here) ? here : o.moves[0];
-    if (o.kind === "act") f.action = o.forced_attack ? "attack:" + o.attack[0] : "draw";
-  }
-  f.roll = V.options && V.options.kind === "act" ? savedRoll() : null;
-  return f;
-}
-function fromSubmitted(f, d) {
-  if (d.move) f.move = d.move;
-  if (Array.isArray(d.roll)) f.roll = d.roll;
-  if (d.action) f.action = d.action;
-  if (typeof d.memo === "string") f.memo = d.memo;
-  (d.say || []).slice(0, 2).forEach((m, i) => { f.says[i] = {to: m.to === undefined || m.to === null ? "all" : m.to, text: m.text || ""}; });
-  (d.extra || []).forEach(x => {
-    const [k, ...rest] = String(x).split(":");
-    if (k === "eat") { f.eat.add(rest.join(":")); return; }
-    if (k === "declare") { rest.join(":").split(",").forEach(p => { const [s, i] = p.split("="); if (i) f.decl[String(s).replace(/^s/, "")] = i; }); f.declOpen = true; return; }
-    const e = f.extras[k] = {on: true};
-    if (k === "trade" || k === "feed") { e.target = rest[0]; e.card = rest.slice(1).join(":"); }
-    else if (k === "steal" || k === "peek") e.target = rest[0];
-    else if (k === "bomb") e.zone = rest[0];
-  });
-  return f;
-}
-function syncForm() {
-  const key = `${V.round}|${V.phase}|${V.options ? V.options.kind : "-"}`;
-  if (key !== FORMKEY || !FORM) {
-    FORMKEY = key; EDITING = false;
-    FORM = V.options ? blankForm() : null;
-    if (FORM && V.submitted) fromSubmitted(FORM, V.submitted);
-  } else if (FORM && V.submitted && !EDITING) {
-    FORM = fromSubmitted(blankForm(), V.submitted);
-  }
-}
-function touch() { EDITING = true; }
-
-/* ---------- render ---------- */
-function render() {
-  $("who").textContent = `s${V.seat} ${V.me.name}`;
-  $("round").textContent = `第 ${V.round} 回合 · ${PHASE[V.phase] || V.phase}`;
-  $("status").textContent = STATUS[V.status] || V.status;
-  $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
-  const order = (V.turn_order || []), cur = order.find(s => !(V.acted || []).includes(s) && (pl(s) || {}).alive);
-  const turn = order.length ? "🎲 桌游模式 · 行动顺序:" + order.map(s => (V.acted || []).includes(s) ? `s${s}✓` : s === cur ? `▶s${s}` : `s${s}`).join(" ") : "";
-  $("zones").textContent = [turn, V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
-  renderMap(); renderMe(); renderMsgs(); renderForm(); renderReflect(); renderResult();
-  const last = (V.random_events || []).slice(-1)[0];
-  $("fxReplay").hidden = !last;
-  if (last) { $("fxReplay").textContent = `▶ 重播:${last.name}(第 ${last.round} 回合)`; $("fxReplay").onclick = () => playEvent(last); }
-  playNewEvents();
-  $("brief").textContent = V.brief;
-}
-
-function renderMap() {
-  const o = V.options, can = o ? o.moves : [];
-  const talk = !!FORM;
-  $("mapHint").textContent = o ? (talk ? "· 点区域选去向,点玩家名字私聊" : "") : "";
-  $("map").innerHTML = Object.keys(ZN).map(z => {
-    const here = V.players.filter(p => p.zone === z);
-    const closed = !V.open_zones.includes(z);
-    const left = V.deck_left[z] ?? 0;
-    const pick = can.includes(z), chosen = FORM && FORM.move === z && pick;
-    const toks = here.map(p => {
-      const me = p.seat === V.seat, t = talk && !me && p.alive;
-      return `<span class="tok ${me ? "me" : ""} ${p.alive ? "" : "dead"} ${t ? "talk" : ""}" ${t ? `data-talk="${p.seat}" title="私聊 s${p.seat}"` : ""}>s${p.seat} ${esc(p.name)}
-        <span class="hpmini"><i style="width:${Math.max(0, p.hp) / p.hp_max * 100}%;background:${hpColor(p.hp, p.hp_max)}"></i></span>${Math.max(p.hp, 0)}${p.weapon ? " · " + esc(p.weapon) + "+" + p.weapon_value : ""}</span>`;
-    }).join("");
-    const tag = closed ? "已关闭" : `剩 <b style="color:${left ? "var(--ink)" : "var(--hit)"}">${left}</b> 张`;
-    return `<div class="zone ${ZC[z]} ${closed ? "closed" : ""} ${V.me.zone === z ? "here" : ""} ${pick ? "pick" : ""} ${chosen ? "chosen" : ""}" ${pick ? `data-zone="${z}"` : ""}>
-      <div class="zt"><span>${ZN[z]} · ${tag}</span>${chosen ? `<span class="go">✓ ${o.kind === "act" ? "下回合去这" : "去这"}</span>` : ""}</div>${toks}</div>`;
-  }).join("");
-  const unknown = V.players.filter(p => p.zone === null);
-  if (unknown.length) $("map").insertAdjacentHTML("beforeend", `<div class="k" style="grid-column:1/4">位置未知(第一回合同时暗选):${unknown.map(p => talk && p.seat !== V.seat ? `<span class="tok talk" data-talk="${p.seat}">s${p.seat} ${esc(p.name)}</span>` : `s${p.seat} ${esc(p.name)}`).join(" ")}</div>`);
-}
-
-function renderMe() {
-  const m = V.me, dead = V.status === "dead" || m.hp <= 0 && V.status === "over";
-  const hp = Math.max(m.hp, 0);
-  const col = m.skill.match(/^([^:：]{1,8})[:：]/);
-  const eatOK = V.options && V.options.kind === "act" && V.options.extras.some(x => x.kind === "eat");
-  const cards = m.hand.map(c => {
-    const edible = eatOK && c.type === "food", eating = FORM && FORM.eat.has(c.id);
-    return `<div class="gc ${c.type} ${edible ? "edible" : ""} ${eating ? "eating" : ""}" ${edible ? `data-eat="${esc(c.id)}" title="双击:本回合吃掉"` : ""}>
-      ${eating ? `<span class="badge">本回合吃掉</span>` : ""}<span class="ic">${icon(c)}</span><span class="nm">${esc(c.name)}</span><span class="val">${c.type === "weapon" ? "+" + c.value : c.type === "food" ? "回 " + c.value : c.value}</span></div>`;
-  });
-  const limit = Math.max(4, m.hand.length);
-  for (let i = m.hand.length; i < limit; i++) cards.push(`<div class="gc slotfree">空位</div>`);
-  const eq = m.equipped;
-  $("me").innerHTML = `<div style="${dead ? "filter:grayscale(.8);opacity:.7" : ""}">
-    <div class="cc-top">
-      <div class="avatar">${esc(m.name[0] || "?")}</div>
-      <div style="flex:1;min-width:0">
-        <div><span class="cc-name">${esc(m.name)}</span> <span class="k">s${V.seat} · ${m.zone ? "在 " + ZN[m.zone] : "位置未定"}</span></div>
-        <div class="cc-desc">${esc(m.desc || "")}</div>
-        <div style="display:flex;align-items:center;gap:8px"><span>❤️</span><div class="hpbar"><i style="width:${hp / m.hp_max * 100}%;background:${hpColor(hp, m.hp_max)}"></i></div><b>${m.hp} / ${m.hp_max}</b></div>
-      </div>
-    </div>
-    <div class="stats">
-      <div class="stat"><div class="k">基础攻击</div><div class="v">${m.base_attack}</div></div>
-      <div class="stat"><div class="k">武器</div><div class="v">+${eq ? eq.value : 0}</div></div>
-      <div class="stat hl"><div class="k">攻击掷骰</div><div class="v">d${m.attack}</div></div>
-    </div>
-    <div class="skill"><div class="t">✨ 技能${col ? " · " + esc(col[1]) : ""}</div><div style="font-size:13px">${esc(col ? m.skill.slice(col[0].length) : m.skill)}</div></div>
-    <div class="k">装备</div>
-    ${eq ? `<div class="slot"><span class="ic">${icon(eq)}</span><div style="flex:1"><b>${esc(eq.name)}</b></div><b style="color:var(--win)">+${eq.value}</b></div>` : `<div class="slot empty">未装备武器</div>`}
-    <div class="k" style="margin-bottom:6px">手牌 ${m.hand.length} / 4 ${eatOK ? "· 双击食物牌:本回合吃掉" : ""}</div>
-    <div class="hand">${cards.join("")}</div>
-    <div class="legend"><span><i style="background:var(--weapon)"></i>武器</span><span><i style="background:var(--food)"></i>食物</span><span><i style="background:var(--ammo)"></i>碎片</span></div>
-  </div>`;
-  const known = Object.entries(m.known).map(([s, i]) => `${nm(s)} = ${esc(i)}`).join(";");
-  $("ident").innerHTML = `
-    <div class="row big">🎭 ${esc(m.identity)}</div>
-    <div class="row"><span class="k">胜利条件</span> ${esc(m.win_condition)}</div>
-    <div class="row">${esc(m.progress)}</div>
-    ${m.lover !== null ? `<div class="row">💞 你的恋人:${nm(m.lover)}</div>` : ""}
-    ${known ? `<div class="row">🔍 你已确认:${known}</div>` : ""}
-    ${m.declared.length ? `<div class="row">你已声明:${m.declared.map(([s, i]) => nm(s) + "=" + esc(i)).join(",")}</div>` : ""}
-    ${m.memo ? `<div class="row"><span class="k">你的备忘</span> ${esc(m.memo)}</div>` : ""}`;
-  $("acts").innerHTML = (V.my_actions || []).slice().reverse().map(a => `<div class="msg">${esc(a)}</div>`).join("") || `<div class="k">还没有动作</div>`;
-}
-
-function renderMsgs() {
-  $("msgs").innerHTML = V.messages.slice().reverse().map(x => {
-    const tag = x.to === null ? "公开" : (x.to === V.seat ? "私聊给你" : `你私聊 ${nm(x.to)}`);
-    return `<div class="msg ${x.to === null ? "" : "dm"}">r${x.round} <b>${nm(x.from)}</b> [${tag}]:${esc(x.text)}</div>`;
-  }).join("") || `<div class="k">还没有消息</div>`;
-  $("events").innerHTML = V.events.slice().reverse().map(e => `<div class="msg">${esc(e)}</div>`).join("") || `<div class="k">还没有事件</div>`;
-}
-
-const chip = (attr, val, label, on, extra = "") => `<button type="button" class="chip ${extra} ${on ? "on" : ""}" ${attr}="${esc(val)}">${label}</button>`;
-
-function renderForm() {
-  if (ROLLING) return;
-  const o = V.options;
-  if (!o || !FORM) { $("formPanel").style.display = "none"; Dice3D.release(); return; }
-  $("formPanel").style.display = "";
-  $("formTitle").textContent = V.status === "submitted" ? "已提交(结算前可以修改)" : "你的决定";
-  let h = "";
-  if (o.kind === "act") {
-    h += `<div class="sec"><div class="lbl">主行动${o.forced_attack ? " · 你在中心,必须攻击" : ""}</div><div class="chips">
-      ${o.forced_attack ? "" : chip("data-act", "draw", "🃏 抽一张本区牌", FORM.action === "draw")}
-      ${o.attack.map(s => chip("data-act", "attack:" + s, "⚔️ 攻击 " + nm(s), FORM.action === "attack:" + s)).join("")}</div></div>`;
-    if (String(FORM.action).startsWith("attack:")) h += diceBlock();
-    const xs = o.extras.filter(x => x.kind !== "eat");
-    const eats = [...FORM.eat].map(id => (V.me.hand.find(c => c.id === id) || {name: id}).name);
-    h += `<div class="sec"><div class="lbl">附加行动(可选)</div>`;
-    if (o.extras.some(x => x.kind === "eat")) h += `<div class="k" style="margin-bottom:6px">🍎 ${eats.length ? "本回合吃掉:" + esc(eats.join("、")) + "(在上面的手牌上再双击可取消)" : "在上面角色卡的手牌里双击食物牌,就能在本回合吃掉它"}</div>`;
-    h += xs.map(xBox).join("") || (o.extras.length ? "" : `<div class="k">现在没有可用的附加行动</div>`);
-    h += `<div class="xbox ${FORM.declOpen ? "on" : ""}">${chip("data-decl-toggle", "1", "🎭 声明别人的身份", FORM.declOpen, "sm")}`;
-    if (FORM.declOpen) h += V.players.filter(p => p.seat !== V.seat).map(p => `<div class="sub"><span class="k" style="min-width:86px">${nm(p.seat)}</span>${chip("data-decl", p.seat + "=", "不猜", !FORM.decl[p.seat], "sm")}${o.identities.map(i => chip("data-decl", p.seat + "=" + i, esc(i), FORM.decl[p.seat] === i, "sm")).join("")}</div>`).join("");
-    h += `</div></div>`;
-  }
-  h += `<div class="sec"><div class="lbl">${o.kind === "act" ? "下回合去哪" : "这回合去哪"} · 也可以直接点地图</div><div class="chips">${o.moves.map(z => chip("data-move", z, (z === V.me.zone ? "留在 " : "") + ZN[z], FORM.move === z)).join("")}</div></div>`;
-  h += `<div class="sec"><div class="lbl">备忘(只有你自己下回合能看到)</div><textarea id="memo" maxlength="400">${esc(FORM.memo)}</textarea></div>`;
-  const to = (o.say_to || V.players.filter(p => p.alive && p.seat !== V.seat).map(p => p.seat));
-  h += `<div class="sec"><div class="lbl">喊话 / 私聊(可空)· 点地图上的玩家名字也能私聊</div>`;
-  [0, 1].forEach(i => {
-    const s = FORM.says[i];
-    h += `<div class="say"><div class="chips">${chip(`data-to${i}`, "all", "📢 公开", s.to === "all")}${to.map(t => chip(`data-to${i}`, t, "✉️ " + nm(t), String(s.to) === String(t), "dm")).join("")}</div>
-      <input class="txt" id="say${i}" maxlength="200" placeholder="${s.to === "all" ? "对所有人说…" : "悄悄对 s" + s.to + " 说…"}" value="${esc(s.text)}"></div>`;
-  });
-  h += `</div><div id="f_err" class="err"></div>
-    <div style="display:flex;align-items:center;gap:12px"><button class="go-btn" id="f_go">${V.status === "submitted" ? "改好了,重新准备 ✓" : "准备好了 ✓"}</button><span id="f_ok" class="ok"></span></div>`;
-  $("form").innerHTML = h;
-  ["say0", "say1"].forEach((id, i) => $(id).oninput = (e) => { FORM.says[i].text = e.target.value; touch(); });
-  $("memo").oninput = (e) => { FORM.memo = e.target.value; touch(); };
-  $("f_go").onclick = submit;
-  if ($("rollBtn")) $("rollBtn").onclick = rollDice;
-  if ($("diceArea")) Dice3D.show($("diceArea"), V.me.attack, V.me.attack_rolls || 1, FORM.roll);
-  else Dice3D.release();
-}
-
-function xBox(x) {
-  const e = FORM.extras[x.kind] || {};
-  let h = `<div class="xbox ${e.on ? "on" : ""}">${chip("data-xon", x.kind, esc(XLABEL[x.kind] || x.kind), e.on, "sm")}`;
-  if (e.on) {
-    if (x.targets) h += `<div class="sub"><span class="k">对谁</span>${x.targets.map(s => chip("data-xt", x.kind + "|" + s, nm(s), String(e.target) === String(s), "sm")).join("") || `<span class="k">同区没人</span>`}</div>`;
-    if (x.cards) h += `<div class="sub"><span class="k">哪张</span>${x.cards.map(c => chip("data-xc", x.kind + "|" + c.id, esc(c.label), e.card === c.id, "sm")).join("")}</div>`;
-    if (x.zones) h += `<div class="sub"><span class="k">炸哪</span>${x.zones.map(z => chip("data-xz", x.kind + "|" + z, ZN[z], e.zone === z, "sm")).join("")}</div>`;
-  }
-  return h + `</div>`;
-}
-
-/* ---------- interactions (delegated) ---------- */
-document.addEventListener("click", (ev) => {
-  const t = ev.target.closest("[data-act],[data-move],[data-zone],[data-talk],[data-to0],[data-to1],[data-xon],[data-xt],[data-xc],[data-xz],[data-decl],[data-decl-toggle]");
-  if (!t || !FORM) return;
-  const d = t.dataset;
-  if (d.act) FORM.action = d.act;
-  else if (d.move) FORM.move = d.move;
-  else if (d.zone) FORM.move = d.zone;
-  else if (d.talk) {
-    const i = !FORM.says[0].text || FORM.says[0].to === "all" ? 0 : 1;
-    FORM.says[i].to = +d.talk; touch(); renderForm(); renderMap();
-    const inp = $("say" + i); if (inp) { inp.focus(); inp.scrollIntoView({block: "center", behavior: "smooth"}); }
-    return;
-  }
-  else if (d.to0 !== undefined) FORM.says[0].to = d.to0 === "all" ? "all" : +d.to0;
-  else if (d.to1 !== undefined) FORM.says[1].to = d.to1 === "all" ? "all" : +d.to1;
-  else if (d.xon) { const e = FORM.extras[d.xon] = FORM.extras[d.xon] || {}; e.on = !e.on;
-    const x = V.options.extras.find(x => x.kind === d.xon);
-    if (e.on && x) { if (x.targets && e.target === undefined && x.targets.length) e.target = String(x.targets[0]); if (x.cards && !e.card && x.cards.length) e.card = x.cards[0].id; if (x.zones && !e.zone) e.zone = x.zones[0]; } }
-  else if (d.xt) { const [k, v] = d.xt.split("|"); FORM.extras[k].target = v; }
-  else if (d.xc) { const [k, ...v] = d.xc.split("|"); FORM.extras[k].card = v.join("|"); }
-  else if (d.xz) { const [k, v] = d.xz.split("|"); FORM.extras[k].zone = v; }
-  else if (d.declToggle) FORM.declOpen = !FORM.declOpen;
-  else if (d.decl !== undefined) { const [s, i] = d.decl.split("="); if (i) FORM.decl[s] = i; else delete FORM.decl[s]; }
-  touch(); renderForm(); renderMap();
-});
-document.addEventListener("dblclick", (ev) => {
-  const t = ev.target.closest("[data-eat]");
-  if (!t || !FORM) return;
-  const id = t.dataset.eat;
-  FORM.eat.has(id) ? FORM.eat.delete(id) : FORM.eat.add(id);
-  touch(); renderMe(); renderForm();
-});
-
-function collect() {
-  const o = V.options, d = {round: V.round, phase: V.phase, move: FORM.move, memo: FORM.memo.trim(), say: []};
-  FORM.says.forEach(s => { const t = s.text.trim(); if (t) d.say.push({to: s.to, text: t}); });
-  if (o.kind === "act") {
-    d.action = FORM.action;
-    if (String(FORM.action).startsWith("attack:") && FORM.roll) d.roll = FORM.roll;
-    d.extra = [...FORM.eat].map(id => "eat:" + id);
-    Object.entries(FORM.extras).forEach(([k, e]) => {
-      if (!e.on) return;
-      if (k === "trade" || k === "feed") d.extra.push(`${k}:${e.target}:${e.card}`);
-      else if (k === "steal" || k === "peek") d.extra.push(`${k}:${e.target}`);
-      else if (k === "bomb") d.extra.push(`bomb:${e.zone}`);
-      else d.extra.push(k);
-    });
-    const pairs = Object.entries(FORM.decl).map(([s, i]) => `s${s}=${i}`);
-    if (pairs.length) d.extra.push("declare:" + pairs.join(","));
-  }
-  return d;
-}
-
-async function post(body) {
-  const r = await fetch(API("/api/decision"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-  return [r.status, await r.json()];
-}
-
-async function submit() {
-  if (V.options && V.options.kind === "act" && String(FORM.action).startsWith("attack:") && !FORM.roll) {
-    $("f_err").textContent = "先点「掷骰子」掷出伤害,再提交。"; return;
-  }
-  $("f_go").disabled = true; $("f_err").textContent = ""; $("f_ok").textContent = "";
-  let code, r;
-  try { [code, r] = await post(collect()); } catch (e) { code = 0; r = {error: "连不上服务器,稍后再试"}; }
-  $("f_go").disabled = false;
-  if (code === 200) { EDITING = false; $("notice").textContent = ""; SIG = ""; await poll(); if ($("f_ok")) $("f_ok").textContent = "已提交 ✓"; }
-  else if (code === 409) { EDITING = false; $("notice").textContent = r.error; SIG = ""; poll(); }
-  else $("f_err").textContent = (r.errors || [r.error]).join("\n");
-}
-
-function renderReflect() {
-  const r = V.reflection;
-  if (!r) { $("reflectPanel").style.display = "none"; return; }
-  $("reflectPanel").style.display = "";
-  if (!r.open) { $("reflect").innerHTML = `<div class="row">${esc(r.text || "")}</div>`; return; }
-  if ($("r_text")) return;
-  $("reflect").innerHTML = `<div class="k">写写你的计划、哪里失误了、对游戏节奏的看法。之后你只能看公开信息,等游戏结束。</div>
-    <textarea id="r_text" maxlength="2000" style="margin:8px 0"></textarea><div id="r_err" class="err"></div><button class="go-btn" id="r_go">提交感悟</button>`;
-  $("r_go").onclick = async () => {
-    const [code, res] = await post({reflection: $("r_text").value});
-    if (code === 200) { SIG = ""; $("reflect").innerHTML = ""; poll(); } else $("r_err").textContent = (res.errors || [res.error]).join("\n");
-  };
-}
-
-function guessLines(r) {
-  const g = Object.entries(r.human_guesses || {});
-  if (!g.length) return "";
-  const hs = new Set(r.humans || []);
-  return `<div class="row" style="margin-top:10px"><b>🕵️ 谁是人类?</b> 真正的人类:${[...hs].map(nm).join("、")}</div>` +
-    g.map(([s, t]) => `<div class="row">${nm(s)} 最后猜是 ${nm(t)} ${hs.has(+t) ? "✅ 猜对了" : "❌"}</div>`).join("");
-}
-
-function renderResult() {
-  const r = V.result;
-  if (!r) { $("resultPanel").style.display = "none"; return; }
-  $("resultPanel").style.display = "";
-  $("result").innerHTML = V.players.map(p => {
-    const w = r.winners[p.seat];
-    return `<div class="row">${nm(p.seat)} · ${esc(r.identities[p.seat])} · ${p.alive ? "存活" : "出局"}${w ? ` · <span class="big">🏆 ${esc(w.join("、"))}</span>` : ""}</div>`;
-  }).join("") + guessLines(r) + `<div class="row"><a href="/">打开观战页看完整回放和所有人的思考 →</a></div>`;
-}
-
-async function pickSeat() {
-  let r, d;
-  try { r = await fetch("/api/my_seats", {cache: "no-store"}); d = await r.json(); }
-  catch (e) { $("fatal").textContent = "连不上服务器"; return; }
-  if (!r.ok) { $("fatal").textContent = d.error; return; }
-  const go = (s) => { location.search = `?seat=${s.seat}&key=${encodeURIComponent(s.key)}`; };
-  if (d.seats.length === 1) return go(d.seats[0]);
-  if (!d.seats.length) { $("fatal").textContent = "这一局没有人类座位。开局时加上 --humans 1 才能加入。"; return; }
-  $("notice").innerHTML = `<div class="panel"><h3>选择你的座位</h3><div class="chips">${d.seats.map((s, i) => `<button class="chip" data-pick="${i}">s${s.seat} ${esc(s.name)}</button>`).join("")}</div></div>`;
-  document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => go(d.seats[+b.dataset.pick]));
-}
-
-if (!SEAT || !KEY) pickSeat();
-else { poll(); setInterval(poll, 2000); }
+$("diceBtns").innerHTML = DEMO_DICE.map(([label], i) => `<button type="button" class="chip" data-d="${i}">🎲 ${label}</button>`).join("");
+$("diceBtns").onclick = (e) => { const b = e.target.closest("[data-d]"); if (b) demoRoll(+b.dataset.d); };
+Dice3D.show($("diceArea"), 6, 1, null);
+/* demo: events on a sample map */
+const PEOPLE = {center: ["s0 Mira", "s4 Bram"], forest: ["s1 Elliot"], water: ["s2 Michael"], stone: ["s3 Natalie", "s6 Agatha"], city: ["s5 Cato"]};
+$("map").innerHTML = Object.keys(ZN).map(z => `<div class="zone ${ZC[z]}"><div class="zt"><span>${ZN[z]} · 剩 6 张</span></div>
+  ${PEOPLE[z].map(p => `<span class="tok">${p}</span>`).join("")}</div>`).join("");
+const DEMO_EV = [["E01", "变异狼群", ["stone"], [3, 6]], ["E02", "洪水", ["forest"], [1]], ["E03", "猴群", ["city"], [5]], ["E04", "沙尘暴", ["stone"], [3, 6]],
+                 ["E05", "和平日", ["water"], [2]], ["E06", "Fire Balls", ["forest", "stone", "city"], [1, 3, 5, 6]], ["E07", "Hungry Dogs", ["forest"], [1]], ["E08", "The Feast", ["center"], []]];
+$("evBtns").innerHTML = DEMO_EV.map(([id, name], i) => `<button type="button" class="chip" data-e="${i}">${FX_LABEL[id].split(":")[0].replace(/ -\d/, "")}</button>`).join("");
+$("evBtns").onclick = (e) => { const b = e.target.closest("[data-e]"); if (b) { const [id, name, zones, hits] = DEMO_EV[+b.dataset.e]; playEvent({id, name, zones, hits}); } };
 </script>
-</body>
-</html>

@@ -26,14 +26,19 @@ class Engine:
         self.killer_of = {}                  # dead seat -> killer seat (at death)
         self.deaths_by_round = []            # [(round, [seats]) ...] in elimination order
         self.died_with_advanced = {}         # dead seat -> #advanced weapons held at death
-        self.ever_attacked = set()           # seats that ever chose Attack
-        self.trade_partners = defaultdict(set)   # seat -> set of trade partners
-        self.pair_trades = defaultdict(int)      # frozenset({a,b}) -> trade count
+        self.ever_attacked = set()           # seats that used violence (by choice) before the final three
+        self.gives = Counter()               # (giver, receiver) -> cards handed over
         self.reached_final3 = set()          # seats alive when count first <= 3
         self.messages = []                   # dialogue log (public + private)
         self.declarations = {}               # seat -> list of (guess_seat, guess_identity)
         self.known_identities = defaultdict(dict)  # seat -> {seat: identity} learned privately (Iris)
         self.peek_used = set()               # seats that spent their once-per-game peek
+
+    def __setstate__(self, d):
+        """Unpickle a game saved before two-way exchange tracking: its gifts can't be split by
+        direction, so the exchange count starts fresh."""
+        self.__dict__.update(d)
+        self.__dict__.setdefault("gives", Counter())
 
     def alive_players(self) -> List[PlayerState]:
         return [p for p in self.state.players if p.alive]
@@ -88,14 +93,14 @@ class Engine:
                 continue
             self._maybe_heal(p)          # free additional action: eat food when wounded/downed
             obs = build_observation(self, p.seat)
-            forced = (p.zone == Zone.CENTER and obs.attackable_seats)
-            if forced:
-                action = Attack(self._lowest_hp(obs.attackable_seats))
-            else:
-                action = await self.players_by_seat[p.seat].decide_action(obs)
-                if isinstance(action, Attack) and action.target_seat not in obs.attackable_seats:
-                    action = Draw()
-            self._apply(p, action)
+            forced = bool(p.zone == Zone.CENTER and obs.attackable_seats)
+            action = await self.players_by_seat[p.seat].decide_action(obs)
+            valid_attack = isinstance(action, Attack) and action.target_seat in obs.attackable_seats
+            if forced and not valid_attack:
+                action = Attack(self._lowest_hp(obs.attackable_seats))   # must fight; you pick whom
+            elif not forced and isinstance(action, Attack) and not valid_attack:
+                action = Draw()
+            self._apply(p, action, forced=forced)
             if forced:      # center: you must fight, and you also grab a card from the rich stash
                 self.center_draw(p)
             for extra in await self.players_by_seat[p.seat].decide_additional_actions(obs):
@@ -125,6 +130,19 @@ class Engine:
         self._heal(p, config.EVENT_FEAST_HEAL)
         self.log.record(Event("feast_heal", self.state.round_no, p.seat, "public",
                                {"from": before, "hp": p.hp}))
+
+    def swap_partners(self, seat):
+        """Players `seat` has completed a two-way exchange with (each gave the other a card)."""
+        return {b for (a, b) in self.gives if a == seat and self.gives[(b, a)] > 0}
+
+    def swap_count(self, a, b):
+        """Completed two-way exchanges between a and b: one-way gifts don't count."""
+        return min(self.gives[(a, b)], self.gives[(b, a)])
+
+    def _note_violence(self, seat):
+        """For the Pacifist: attacks by choice and bombs count, until the final three is reached."""
+        if not self.reached_final3:
+            self.ever_attacked.add(seat)
 
     def _lowest_hp(self, seats):
         return sorted(seats, key=lambda s: self._p(s).hp)[0]
@@ -170,6 +188,7 @@ class Engine:
                 p.hand.remove(c)
             self.state.bombs.append(
                 Bomb(zone=action.target_zone, detonate_round=self.state.round_no + 1, planter_seat=p.seat))
+            self._note_violence(p.seat)                   # planting a bomb is violence (Pacifist)
             self.log.record(Event("plant_bomb", self.state.round_no, p.seat, "private",
                                    {"zone": action.target_zone.value}))
         elif isinstance(action, TradeCard):
@@ -192,9 +211,7 @@ class Engine:
                     target.hand.append(card)
                 self.log.record(Event("trade", self.state.round_no, p.seat, "private",
                                        {"to": target.seat, "card": card.id}))
-                self.trade_partners[p.seat].add(target.seat)
-                self.trade_partners[target.seat].add(p.seat)
-                self.pair_trades[frozenset({p.seat, target.seat})] += 1
+                self.gives[(p.seat, target.seat)] += 1
         elif isinstance(action, StealCard):
             if not self._skill(p).can_steal():
                 return
@@ -411,7 +428,8 @@ class Engine:
                                {"got": card.id if card else None}))
         return card
 
-    def _apply(self, p: PlayerState, action):
+    def _apply(self, p: PlayerState, action, forced: bool = False):
+        """forced: an attack the center rule made (doesn't count against the Pacifist)."""
         skill = self._skill(p)
         if isinstance(action, Draw):
             alone = not any(q.alive and q.seat != p.seat and q.zone == p.zone
@@ -427,7 +445,8 @@ class Engine:
             res = resolve_attack(p, defender, self.rng, config.ARMOR_REDUCTION,
                                  bonus_reduction=bonus, ignore_armor=skill.ignores_armor(p),
                                  rolls=skill.attack_rolls(p))
-            self.ever_attacked.add(p.seat)
+            if not forced:
+                self._note_violence(p.seat)
             self.last_attacker[defender.seat] = p.seat
             self.log.record(Event("attack", self.state.round_no, p.seat, "public",
                                    {"target": defender.seat, **res}))
@@ -460,8 +479,9 @@ class Engine:
     def resolve_deaths(self):
         """End-of-round: anyone still at <=0 HP is eliminated (credit kills, record order)."""
         dead_now = []
-        for p in self.state.players:
-            if p.alive and p.hp <= 0:
+        dying = [p for p in self.state.players if p.alive and p.hp <= 0]
+        while dying:                     # a Scimitar can drop its holder's killer too
+            for p in dying:
                 p.alive = False
                 dead_now.append(p.seat)
                 killer = self.last_attacker.get(p.seat)
@@ -472,6 +492,14 @@ class Engine:
                           [c for c in p.hand if c.type == CardType.WEAPON]
                 self.died_with_advanced[p.seat] = sum(1 for w in weapons if w.value >= 3)
                 self.log.record(Event("eliminated", self.state.round_no, p.seat, "public", {}))
+                if killer is not None and killer != p.seat and any(w.name == config.SCIMITAR for w in weapons):
+                    k = self._p(killer)
+                    if k.alive:
+                        k.hp -= config.SCIMITAR_DAMAGE
+                        self.last_attacker[k.seat] = p.seat
+                        self.log.record(Event("scimitar", self.state.round_no, p.seat, "public",
+                                               {"target": k.seat, "damage": config.SCIMITAR_DAMAGE, "hp": k.hp}))
+            dying = [p for p in self.state.players if p.alive and p.hp <= 0]
         if dead_now:
             self.deaths_by_round.append((self.state.round_no, dead_now))
         if not self.reached_final3:

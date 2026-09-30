@@ -32,6 +32,7 @@ from arena.models import (Zone, Draw, Attack, PlantBomb, TradeCard, CardType,
                           StealCard, CraftWeapon, CraftShield, PoisonFood,
                           PeekIdentity, FeedFood, EatFood)
 from arena import config
+from arena import identities
 from arena.map import legal_moves
 from arena.engine import build_observation
 from play.briefing import load_table, brief as _brief, zone_guide
@@ -386,7 +387,7 @@ PROMPT_DIR = f"{PLAY_LIVE}/prompts"      # one private file per seat: s{seat}.tx
 DECISION_DIR = f"{PLAY_LIVE}/decisions"  # the seat's agent writes s{seat}.json here
 HUMAN_DIR = f"{PLAY_LIVE}/human"        # human seats' reflections (play/human.py, app/human_api.py)
 
-PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal")
+PUBLIC_EV = ("attack", "eliminated", "random_event", "zone_closed", "bomb", "craft", "poison", "feed", "feast_heal", "scimitar")
 
 
 def _memos(eng):
@@ -535,16 +536,28 @@ def _progress(eng, seat):
         state = "暂时唯一最多 ✅" if me > others else ("和别人并列,并列不算赢" if me == others and me else "落后")
         parts.append(f"击杀数: 你 {me},其他人最多 {others} —— {state}")
     elif ident == "Pacifist":
-        parts.append("你还没主动攻击过 ✅" if seat not in eng.ever_attacked else "❌ 你已主动攻击过,Pacifist 胜利已不可能")
+        if eng.reached_final3 and seat in eng.reached_final3 and seat not in eng.ever_attacked:
+            parts.append("✅ 你没动过武就进了最后 3 人,Pacifist 胜利已到手,现在可以自由动武")
+        else:
+            parts.append("你还没主动攻击过 ✅(中心强制攻击不算;埋炸弹算)" if seat not in eng.ever_attacked
+                         else "❌ 你已主动攻击过或埋过炸弹,Pacifist 胜利已不可能")
     elif ident == "Myrtle":
         if eng.deaths_by_round:
             parts.append("❌ 已经有人比你先死,Myrtle 胜利已不可能,改为争取活到最后")
     elif ident == "Negotiator":
         need = n - 2
-        parts.append(f"已和 {len(eng.trade_partners.get(seat, ()))}/{need} 名不同玩家交换过")
+        parts.append(f"已和 {len(eng.swap_partners(seat))}/{need} 名不同玩家完成双向交换(单向给牌不算)")
     elif ident == "Judas":
-        best = max((c for pair, c in eng.pair_trades.items() if seat in pair), default=0)
-        parts.append(f"和同一个人最多交换过 {best}/3 次")
+        best = max((eng.swap_count(seat, q.seat) for q in st.players if q.seat != seat), default=0)
+        parts.append(f"和同一个人最多完成过 {best}/3 次双向交换(单向给牌不算)")
+    elif ident == "Bodyguard":
+        named = [gs for gs, gid in eng.declarations.get(seat, []) if gid == identities.TARGET_LABEL]
+        parts.append(f"已指认 s{named[0]} 为复仇对象(终局按此结算,可以更新)" if named
+                     else "还没指认复仇对象——保护路线要用 declare 指出他,否则只能靠亲手杀死复仇者赢")
+    elif ident == "Sour Lemon":
+        named = [gs for gs, gid in eng.declarations.get(seat, []) if identities._same_identity("Lovers", gid)]
+        parts.append(f"已指认 {', '.join(f's{x}' for x in named)} 为恋人" if named
+                     else "还没指认恋人——先用 declare 认出恋人,再亲手杀死他才算赢")
     elif ident == "Social Butterfly":
         parts.append("已声明,终局按声明结算(可以更新)" if seat in eng.declarations
                      else "还没声明身份——用 declare 写下你的猜测,被淘汰前记得声明")
@@ -567,6 +580,8 @@ def _event_line(e):
         return f"{r} 💥{pl['zone']} 炸到 s{pl['hit']}"
     if e.type == "feed":
         return f"{r} s{e.actor} 喂 s{pl['to']} 吃东西(→{pl['hp']}血)"
+    if e.type == "scimitar":
+        return f"{r} 🗡 s{e.actor} 的弯刀反噬 s{pl['target']} -{pl['damage']}(→{pl['hp']}血)"
     if e.type == "feast_heal":
         return f"{r} s{e.actor} 盛宴回血(→{pl['hp']}血)"
     if e.type in PUBLIC_EV:
@@ -646,7 +661,7 @@ def _prompt(eng, seat, phase):
             L.append("你在中心区:必须攻击(自己选目标),攻击后自动抽 1 张中心牌。")
         ex = _extras(eng, p)
         L.append(f"可用附加行动: {', '.join(ex) if ex else '无'}"
-                 + (" · 也可 declare:座位=身份,..." if p.identity == "Social Butterfly" else ""))
+                 + (_DECLARE_HINT.get(p.identity, "")))
         nxt = ", ".join(NAME_BY_ZONE[z] for z in _next_legal(eng, p))
         closing = _closing_zone(eng)
         L.append(f"【同时决定下回合去哪】下回合可去: {nxt}"
@@ -660,6 +675,13 @@ def _prompt(eng, seat, phase):
                  "游戏结束时会公布谁猜对了。")
     L.append(f"把决策 JSON 用 Write 写到 {DECISION_DIR}/s{seat}.json(只写这一个文件)。")
     return "\n".join(L)
+
+
+_DECLARE_HINT = {
+    "Social Butterfly": " · 也可 declare:座位=身份,...",
+    "Sour Lemon": " · 也可 declare:座位=Lovers(认出恋人,杀他才算数)",
+    "Bodyguard": f" · 也可 declare:座位={identities.TARGET_LABEL}(保护路线要指出复仇对象)",
+}
 
 
 def _record_thinking(eng, seat, phase, memo, round_no=None):
@@ -1009,7 +1031,7 @@ def cmd_actphase(args):
         act = str(d.get("action", "draw"))
         tgt = _seat(act.split(":")[1]) if act.startswith("attack:") else None
         if p.zone == Zone.CENTER and atk:                  # forced fight + center draw
-            eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)))
+            eng._apply(p, Attack(tgt if tgt in atk else eng._lowest_hp(atk)), forced=True)
             eng.center_draw(p)
         elif tgt in atk:
             eng._apply(p, Attack(tgt))

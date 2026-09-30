@@ -49,3 +49,19 @@ def test_center_with_target_forces_attack():
     # deck empty so a Draw would be wasted; center rule must pick Attack
     asyncio.run(eng.action_phase())
     assert any(e.type == "attack" for e in eng.log.events)
+
+
+def test_center_attacker_chooses_the_target():
+    from arena.models import Attack
+    from arena.players.base import Player
+
+    class HitsSeat2(Player):
+        async def decide_action(self, obs):
+            return Attack(2)
+
+    eng = _engine({1: Zone.CENTER, 2: Zone.CENTER, 3: Zone.CENTER})
+    eng._p(2).hp, eng._p(3).hp = 5, 1                 # seat 3 is weaker, but seat 1 picks seat 2
+    eng.players_by_seat = {1: HitsSeat2(), 2: HitsSeat2(), 3: HitsSeat2()}
+    asyncio.run(eng.action_phase())
+    first = next(e for e in eng.log.events if e.type == "attack")
+    assert first.actor == 1 and first.payload["target"] == 2

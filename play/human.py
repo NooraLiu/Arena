@@ -9,6 +9,7 @@ import os
 
 from arena.engine import build_observation
 from arena.models import Zone, CardType
+from arena import identities
 from play import session as S
 from play.briefing import fill_for
 
@@ -174,7 +175,8 @@ def _options(eng, seat, phase):
             "extras": _extra_options(eng, p),
             "moves": _names(S._next_legal(eng, p)),
             "say_to": [q.seat for q in eng.alive_players() if q.seat != seat],
-            "identities": sorted({q.identity for q in eng.state.players if q.identity})}
+            "identities": sorted({q.identity for q in eng.state.players if q.identity})
+                          + ([identities.TARGET_LABEL] if p.identity == "Bodyguard" else [])}
 
 
 def human_view(eng, seat):

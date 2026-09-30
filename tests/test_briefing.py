@@ -35,7 +35,7 @@ def test_briefs_have_no_unfilled_placeholders():
 
 
 def test_lovers_know_their_partner():
-    eng = _game(6)
+    eng = _game(7)
     guide = zone_guide(eng.state.decks)
     a, b = [p for p in eng.state.players if p.identity == "Lovers"]
     assert f"s{b.seat} {b.character.name}" in brief(eng, a.seat, guide)

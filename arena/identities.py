@@ -4,9 +4,9 @@ end-of-game win-checking.
 Win conditions split into two kinds:
   - mechanical: derivable from what the engine tracks (kills, death order,
     trades, weapons held at death, attacks, final-three).  Checked automatically.
-  - declared: need a player's stated guess (Social Butterfly, Sour Lemon's
-    "identify", Bodyguard's "point out the target").  Passed in via `declarations`
-    and, for now, taken at face value against the true identities.
+  - declared: need a player's stated guess (Social Butterfly; Sour Lemon's
+    "identify" = declare the Lover as Lovers; Bodyguard's "point out the target" =
+    declare that seat as 复仇对象).  Passed in via `declarations`.
 
 Multiple winners are allowed: a player can win several tracks at once.
 """
@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 IDENTITY_CONFIG = {
     5:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly"],
-    6:  ["Warrior", "Vendetta", "Bodyguard", "Social Butterfly", "Lovers", "Lovers"],
+    6:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Negotiator"],
     7:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers"],
     8:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers", "Sour Lemon"],
     9:  ["Warrior", "Vendetta", "Bodyguard", "Myrtle", "Social Butterfly", "Lovers", "Lovers", "Sour Lemon", "Pacifist"],
@@ -41,6 +41,14 @@ def left_neighbor(seat: int, n: int) -> int:
 
 def _seats_with(engine, identity: str) -> List[int]:
     return [p.seat for p in engine.state.players if p.identity == identity]
+
+
+TARGET_LABEL = "复仇对象"          # what a Bodyguard declares the Vendetta's target as
+
+
+def _named(declared, seat, label):
+    """Does this declaration list name `seat` as `label`?"""
+    return any(gs == seat and _same_identity(label, gid) for gs, gid in declared)
 
 
 def _same_identity(actual, guess):
@@ -86,11 +94,11 @@ def check_winners(engine, declarations: Optional[Dict[int, List[str]]] = None) -
             wins[s].append("Collector")
         elif ii == "Pacifist" and s in engine.reached_final3 and s not in engine.ever_attacked:
             wins[s].append("Pacifist")
-        elif ii == "Negotiator" and len(engine.trade_partners.get(s, ())) >= n - 2:
+        elif ii == "Negotiator" and len(engine.swap_partners(s)) >= n - 2:
             wins[s].append("Negotiator")
         elif ii == "Judas":
             for q in st.players:
-                if q.seat != s and engine.pair_trades.get(frozenset({s, q.seat}), 0) >= 3 \
+                if q.seat != s and engine.swap_count(s, q.seat) >= 3 \
                         and engine.killer_of.get(q.seat) == s:
                     wins[s].append("Judas")
                     break
@@ -98,14 +106,16 @@ def check_winners(engine, declarations: Optional[Dict[int, List[str]]] = None) -
             vend = _seats_with(engine, "Vendetta")
             if vend:
                 target = right_neighbor(vend[0], n)
-                if target in alive or engine.killer_of.get(vend[0]) == s:
+                protected = target in alive and _named(declarations.get(s, []), target, TARGET_LABEL)
+                if protected or engine.killer_of.get(vend[0]) == s:
                     wins[s].append("Bodyguard")
         elif ii == "Lovers":
             partner = next((q.seat for q in st.players if q.identity == "Lovers" and q.seat != s), None)
             if partner is not None and s in alive and partner in alive:   # both alive at the end
                 wins[s].append("Lovers")
         elif ii == "Sour Lemon":
-            if any(ident.get(v) == "Lovers" and engine.killer_of.get(v) == s for v in engine.killer_of):
+            if any(ident.get(v) == "Lovers" and engine.killer_of.get(v) == s
+                   and _named(declarations.get(s, []), v, "Lovers") for v in engine.killer_of):
                 wins[s].append("Sour Lemon")
         elif ii == "Social Butterfly":
             guesses = declarations.get(s, [])

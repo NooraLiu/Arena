@@ -41,7 +41,7 @@ def test_round_cap_forces_termination(monkeypatch):
 def test_only_the_two_lovers_left_ends_the_game():
     import random
     from arena.setup import new_game
-    eng = new_game(6, random.Random(1), lambda: None)
+    eng = new_game(7, random.Random(1), lambda: None)
     lovers = [p for p in eng.state.players if p.identity == "Lovers"]
     assert len(lovers) == 2
     for p in eng.state.players:

@@ -1,14 +1,20 @@
 import asyncio
 import random
-from arena.models import Zone, Character, PlayerState, GameState, Card, CardType
+from arena.models import Zone, Character, PlayerState, GameState, Card, CardType, Draw
 from arena.players.base import Player
 from arena.engine import Engine
+
+
+class Passive(Player):
+    """Never picks a target: in the center the engine picks one for it."""
+    async def decide_action(self, obs):
+        return Draw()
 
 
 def _engine(players):
     st = GameState(round_no=2, players=players, decks={z: [] for z in Zone},
                    open_zones=set(Zone), first_seat=0)
-    return Engine(state=st, players_by_seat={p.seat: Player() for p in players},
+    return Engine(state=st, players_by_seat={p.seat: Passive() for p in players},
                   rng=random.Random(0))
 
 

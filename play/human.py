@@ -120,6 +120,13 @@ def _my_actions(eng, seat):
                 out.append(f"{r} 偷看到 s{pl.get('target')} 是 {pl.get('identity')}")
             elif e.type == "feed":
                 out.append(f"{r} 喂 s{pl.get('to')} 吃了 {_card_name(eng, pl.get('food'))}")
+            elif e.type == "discard":
+                why = {"hand_limit": "手牌超过上限,自动丢掉最早的", "dogs": "饿狗事件:交出食物",
+                       "flood": "洪水事件:冲走手里的武器", "monkeys": "猴群事件:抢走已装备的武器",
+                       "replaced": "换上更好的武器,旧武器丢掉",
+                       "unlogged": "之前没记录到:换装备时丢掉的旧武器,或手牌超上限被丢"}.get(pl.get("why"), "丢弃")
+                cards = "、".join(_card_name(eng, c) for c in pl.get("cards", []))
+                out.append(f"{r} {why} → {cards}")
         elif e.type == "trade" and pl.get("to") == seat:
             out.append(f"{r} s{e.actor} 给了你 {_card_name(eng, pl.get('card'))}")
         elif e.type == "steal" and pl.get("from") == seat:

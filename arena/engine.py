@@ -110,7 +110,14 @@ class Engine:
         """The draw that comes with a forced center attack (+Feast bonus while it's active)."""
         self._draw_one(p)
         self._feast(p)
-        enforce_hand_limit(p, self._skill(p).hand_limit(p))
+        self._hand_limit(p)
+
+    def _hand_limit(self, p: PlayerState):
+        """Drop the oldest cards over the hand limit, and say so (the player sees it happen)."""
+        dropped = enforce_hand_limit(p, self._skill(p).hand_limit(p))
+        if dropped:
+            self.log.record(Event("discard", self.state.round_no, p.seat, "private",
+                                   {"cards": [c.id for c in dropped], "why": "hand_limit"}))
 
     @staticmethod
     def _heal(p: PlayerState, amount: int):
@@ -344,9 +351,16 @@ class Engine:
                 p.hp -= config.EVENT_FIRE_DAMAGE
         elif eid == "E02":                              # 洪水: discard HAND weapons (equipped survives)
             for p in victims:
+                lost = [c for c in p.hand if c.type == CardType.WEAPON]
                 p.hand[:] = [c for c in p.hand if c.type != CardType.WEAPON]
+                if lost:
+                    self.log.record(Event("discard", self.state.round_no, p.seat, "private",
+                                           {"cards": [c.id for c in lost], "why": "flood"}))
         elif eid == "E03":                              # 猴群: steal the equipped weapon
             for p in victims:
+                if p.equipped_weapon is not None:
+                    self.log.record(Event("discard", self.state.round_no, p.seat, "private",
+                                           {"cards": [p.equipped_weapon.id], "why": "monkeys"}))
                 p.equipped_weapon = None
         elif eid == "E04":                              # 沙尘暴: freeze the zone (can't move this round)
             for z in zones:
@@ -357,6 +371,8 @@ class Engine:
                 if len(foods) >= 2:
                     for c in foods[:2]:
                         p.hand.remove(c)
+                    self.log.record(Event("discard", self.state.round_no, p.seat, "private",
+                                           {"cards": [c.id for c in foods[:2]], "why": "dogs"}))
                 else:
                     p.hp -= config.EVENT_DOGS_DAMAGE
         elif eid == "E08":                              # the Feast: telegraph +2 center draws next round
@@ -421,6 +437,9 @@ class Engine:
             is_upgrade = card.type == CardType.WEAPON and (
                 p.equipped_weapon is None or card.value > p.equipped_weapon.value)
             if is_upgrade:
+                if p.equipped_weapon is not None:   # the old weapon is thrown away
+                    self.log.record(Event("discard", self.state.round_no, p.seat, "private",
+                                           {"cards": [p.equipped_weapon.id], "why": "replaced"}))
                 p.equipped_weapon = card          # equip slot, not the hand
             else:
                 p.hand.append(card)
@@ -438,7 +457,7 @@ class Engine:
             for _ in range(draws):
                 self._draw_one(p)
             self._feast(p)                                          # the Feast: bonus draws or a heal
-            enforce_hand_limit(p, skill.hand_limit(p))
+            self._hand_limit(p)
         elif isinstance(action, Attack):
             defender = self._p(action.target_seat)
             bonus = self._skill(defender).damage_reduction(defender, defender.zone)
@@ -453,7 +472,7 @@ class Engine:
             # death is not finalized here; end-of-round resolve_deaths() handles it
             for _ in range(skill.draws_after_attack(p, p.zone)):   # e.g. Fae in the forest
                 self._draw_one(p)
-            enforce_hand_limit(p, skill.hand_limit(p))
+            self._hand_limit(p)
 
     def _eat_one_food(self, p: PlayerState) -> bool:
         food = next((c for c in p.hand if c.type == CardType.FOOD), None)

@@ -122,7 +122,8 @@ def _my_actions(eng, seat):
                 out.append(f"{r} 喂 s{pl.get('to')} 吃了 {_card_name(eng, pl.get('food'))}")
             elif e.type == "discard":
                 why = {"hand_limit": "手牌超过上限,自动丢掉最早的", "dogs": "饿狗事件:交出食物",
-                       "flood": "洪水事件:冲走手里的武器", "monkeys": "猴群事件:抢走已装备的武器",
+                       "flood": "洪水事件:手里的武器被冲回这个区的牌堆",
+                       "monkeys": "猴群事件:已装备的武器被抢走,扔回这个区的牌堆",
                        "replaced": "换上更好的武器,旧武器丢掉",
                        "unlogged": "之前没记录到:换装备时丢掉的旧武器,或手牌超上限被丢"}.get(pl.get("why"), "丢弃")
                 cards = "、".join(_card_name(eng, c) for c in pl.get("cards", []))

@@ -339,6 +339,12 @@ class Engine:
         zs = set(zones)
         return [p for p in self.alive_players() if p.zone in zs]
 
+    def _return_to_deck(self, cards, zone):
+        """Shuffle cards back into a zone's deck at random places (events never destroy weapons)."""
+        deck = self.state.decks.setdefault(zone, [])
+        for c in cards:
+            deck.insert(self.rng.randrange(len(deck) + 1), c)
+
     def apply_random_event(self, ev, target_zone):
         zones = self._event_target_zones(ev, target_zone)
         victims = self._zone_occupants(zones)
@@ -349,18 +355,20 @@ class Engine:
         elif eid == "E06":                              # Fire Balls
             for p in victims:
                 p.hp -= config.EVENT_FIRE_DAMAGE
-        elif eid == "E02":                              # 洪水: discard HAND weapons (equipped survives)
+        elif eid == "E02":                              # 洪水: HAND weapons wash back into the zone's deck
             for p in victims:
                 lost = [c for c in p.hand if c.type == CardType.WEAPON]
                 p.hand[:] = [c for c in p.hand if c.type != CardType.WEAPON]
                 if lost:
+                    self._return_to_deck(lost, p.zone)
                     self.log.record(Event("discard", self.state.round_no, p.seat, "private",
-                                           {"cards": [c.id for c in lost], "why": "flood"}))
-        elif eid == "E03":                              # 猴群: steal the equipped weapon
+                                           {"cards": [c.id for c in lost], "why": "flood", "to": p.zone.value}))
+        elif eid == "E03":                              # 猴群: the equipped weapon goes back into the zone's deck
             for p in victims:
                 if p.equipped_weapon is not None:
+                    self._return_to_deck([p.equipped_weapon], p.zone)
                     self.log.record(Event("discard", self.state.round_no, p.seat, "private",
-                                           {"cards": [p.equipped_weapon.id], "why": "monkeys"}))
+                                           {"cards": [p.equipped_weapon.id], "why": "monkeys", "to": p.zone.value}))
                 p.equipped_weapon = None
         elif eid == "E04":                              # 沙尘暴: freeze the zone (can't move this round)
             for z in zones:

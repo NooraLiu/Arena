@@ -388,6 +388,7 @@ class Engine:
         # E05 和平日: nothing happens
         self.log.record(Event("random_event", self.state.round_no, None, "public",
                                {"id": eid, "name": ev.name, "zone": target_zone.value,
+                                "zones": [z.value for z in zones],
                                 "hits": [p.seat for p in victims]}))
 
     async def play_round(self):

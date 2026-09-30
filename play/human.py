@@ -218,6 +218,10 @@ def human_view(eng, seat):
     messages = [{"round": m.round_no, "from": m.sender, "to": m.to, "text": m.text}
                 for m in eng.visible_messages(seat)][-40:]
     events = [line for line in (S._event_line(e) for e in eng.log.events) if line][-30:]
+    random_events = [{"round": e.round_no, "id": e.payload.get("id"), "name": e.payload.get("name"),
+                      "zones": [S.NAME_BY_ZONE[S.ZONE_BY_NAME[z]] for z in (e.payload.get("zones") or [e.payload.get("zone")])],
+                      "hits": e.payload.get("hits", [])}
+                     for e in eng.log.events if e.type == "random_event"][-3:]
     view = {"seat": seat, "round": st.round_no, "phase": ph, "status": status,
             "mode": getattr(eng, "mode", "simultaneous"),
             "turn_order": [s for s in getattr(eng, "act_order", [])] if ph == "act" and S._board(eng) else [],
@@ -227,6 +231,7 @@ def human_view(eng, seat):
             "feast_active": st.feast_active, "feast_next": st.feast_next,
             "frozen": _names(st.frozen_zones),
             "players": players, "me": me, "messages": messages, "events": events,
+            "random_events": random_events,
             "options": _options(eng, seat, ph) if status in ("your_turn", "submitted") else None,
             "brief": getattr(eng, "briefs", {}).get(seat, ""),
             "submitted": _read_decision(seat) if status == "submitted" else None,

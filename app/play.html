@@ -97,14 +97,29 @@
   .die .dn{font-size:11px;color:var(--dim)}
   .die.best .shape{stroke:var(--win);stroke-width:4}
   .die.coin .shape{stroke:var(--win)}
+  .die svg{filter:drop-shadow(0 4px 3px rgba(0,0,0,.45))}
   .die.rolling svg{animation:tumble 1.1s cubic-bezier(.2,.7,.3,1)}
   .die.coin.rolling svg{animation:flip 1.1s cubic-bezier(.2,.7,.3,1)}
-  @keyframes tumble{0%{transform:rotate(0) scale(.8)}60%{transform:rotate(600deg) scale(1.15)}100%{transform:rotate(720deg) scale(1)}}
+  .die.landed .num{animation:pop .45s ease-out}
+  @keyframes tumble{0%{transform:translateY(-30px) rotate(0) scale(.8)}35%{transform:translateY(0) rotate(420deg) scale(1.1)}
+    55%{transform:translateY(-12px) rotate(600deg)}75%{transform:translateY(0) rotate(700deg)}88%{transform:translateY(-3px) rotate(716deg)}100%{transform:translateY(0) rotate(720deg) scale(1)}}
+  @keyframes pop{0%{transform:scale(.4)}60%{transform:scale(1.5)}100%{transform:scale(1)}}
+  .die .num{transform-box:fill-box;transform-origin:center}
   @keyframes flip{0%{transform:rotateY(0) translateY(0)}50%{transform:rotateY(900deg) translateY(-26px)}100%{transform:rotateY(1800deg) translateY(0)}}
   @media (prefers-reduced-motion: reduce){.die.rolling svg,.die.coin.rolling svg{animation:none}}
   .roll-btn{font:inherit;font-weight:700;color:#fff;background:#8a5a12;border:1px solid var(--weapon);border-radius:10px;padding:8px 16px;cursor:pointer}
   .roll-btn:disabled{opacity:.5;cursor:default}
   .dmg{font-size:15px;font-weight:700;color:var(--win)}
+  /* random-event animations play in a layer over the map, on the zones the event hit */
+  .mapwrap{position:relative}
+  #fx{position:absolute;inset:0;pointer-events:none}
+  .fxbox{position:absolute;border-radius:12px;overflow:hidden}
+  .fxbox .tint{position:absolute;inset:0}
+  .fxbox .sp{position:absolute;font-size:26px;line-height:1;will-change:transform}
+  .fxbox .fxlabel{position:absolute;left:6px;right:6px;bottom:6px;margin:0 auto;width:max-content;max-width:calc(100% - 12px);
+    background:rgba(8,10,20,.82);color:#fff;font-size:12px;font-weight:700;line-height:1.35;text-align:center;
+    padding:3px 9px;border-radius:10px;border:1px solid rgba(255,255,255,.18)}
+  .replay{font:inherit;font-size:11.5px;color:var(--dim);background:none;border:1px dashed var(--line);border-radius:8px;padding:1px 8px;cursor:pointer;margin-left:6px}
 </style>
 </head>
 <body>
@@ -120,7 +135,7 @@
   <div id="notice" class="err"></div>
   <div class="grid">
     <div>
-      <div class="panel"><h3>地图 <span id="mapHint" class="k"></span></h3><div class="map" id="map"></div></div>
+      <div class="panel"><h3>地图 <span id="mapHint" class="k"></span><button type="button" class="replay" id="fxReplay" hidden>▶ 重播事件</button></h3><div class="mapwrap"><div class="map" id="map"></div><div id="fx"></div></div></div>
       <div class="panel"><h3>角色介绍</h3><div id="me"></div>
         <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px"><h3>秘密身份(只有你能看到)</h3><div id="ident"></div></div></div>
       <div class="panel" id="formPanel" style="display:none"><h3 id="formTitle">你的决定</h3><div id="form"></div></div>
@@ -168,6 +183,82 @@ async function poll() {
   } catch (e) { $("fatal").textContent = "连不上服务器,重试中…"; }
 }
 
+/* ---------- fx ---------- */
+const FX_MS = 2800;
+const FX_LABEL = {E01: "🐺 变异狼群 -4", E02: "🌊 洪水:手中武器冲回牌堆", E03: "🐒 猴群:抢走已装备武器", E04: "🌪️ 沙尘暴:本回合不能移动",
+                  E05: "🕊️ 和平日:无事发生", E06: "☄️ 火球 -3", E07: "🐕 饿狗:交 2 食物或 -3", E08: "🍗 盛宴:下回合中心多抽 2 张"};
+function fxSprite(box, ch, x, y, size) {
+  const s = document.createElement("span"); s.className = "sp"; s.textContent = ch;
+  s.style.left = x + "px"; s.style.top = y + "px"; if (size) s.style.fontSize = size + "px";
+  box.appendChild(s); return s;
+}
+function fxTint(box, color, frames) {
+  const t = document.createElement("div"); t.className = "tint"; t.style.background = color; box.appendChild(t);
+  t.animate(frames || [{opacity: 0}, {opacity: .55, offset: .15}, {opacity: .25, offset: .7}, {opacity: 0}], {duration: FX_MS, fill: "forwards"});
+  return t;
+}
+const FX = {
+  E01(b, w, h) { fxTint(b, "#E24B4A");
+    [0, 1, 2].forEach(i => fxSprite(b, "🐺", -40, 10 + i * (h - 50) / 2, 28).animate(
+      [{transform: "translateX(0)"}, {transform: `translateX(${w + 80}px)`}], {duration: 1400, delay: i * 350, easing: "ease-in", fill: "both"})); },
+  E02(b, w, h) { const water = fxTint(b, "linear-gradient(#6ea8fe,#2f5bd3)", [{opacity: .75}, {opacity: .75, offset: .8}, {opacity: 0}]);
+    water.style.top = "auto"; water.style.height = "0";
+    water.animate([{height: "0"}, {height: "85%", offset: .5}, {height: "85%", offset: .8}, {height: "0"}], {duration: FX_MS, fill: "forwards"});
+    [0, 1, 2].forEach(i => fxSprite(b, "🌊", 8 + i * (w - 40) / 2, h - 34).animate(
+      [{transform: "translateY(0)"}, {transform: `translateY(-${h * .55}px)`, offset: .5}, {transform: `translateY(-${h * .5}px)`, offset: .8}, {transform: "translateY(0)"}],
+      {duration: FX_MS, delay: i * 90})); },
+  E03(b, w, h) { fxTint(b, "#8a6d3b");
+    const m = fxSprite(b, "🐒", -30, -30, 30), s = fxSprite(b, "⚔️", w / 2 - 12, h / 2 - 12, 24);
+    m.animate([{transform: "translate(0,0)"}, {transform: `translate(${w / 2 + 12}px,${h / 2 + 12}px)`, offset: .45},
+               {transform: `translate(${w + 60}px,-20px)`}], {duration: FX_MS, easing: "ease-in-out", fill: "both"});
+    s.animate([{transform: "translate(0,0)", opacity: 1}, {transform: "translate(0,0)", opacity: 1, offset: .45},
+               {transform: `translate(${w / 2 + 40}px,-${h / 2 + 40}px)`, opacity: 1}], {duration: FX_MS, easing: "ease-in-out", fill: "both"}); },
+  E04(b, w, h) { fxTint(b, "#c9a26b", [{opacity: 0}, {opacity: .7, offset: .2}, {opacity: .6, offset: .8}, {opacity: 0}]);
+    for (let i = 0; i < 14; i++) fxSprite(b, "•", -10, Math.random() * h, 12 + Math.random() * 14).animate(
+      [{transform: "translateX(0)", opacity: .9}, {transform: `translateX(${w + 30}px)`, opacity: .3}],
+      {duration: 700 + Math.random() * 600, delay: Math.random() * 1600, iterations: 1, fill: "both"});
+    fxSprite(b, "🌪️", w / 2 - 16, h / 2 - 22, 32).animate([{transform: "rotate(0)"}, {transform: "rotate(1080deg)"}], {duration: FX_MS}); },
+  E05(b, w, h) { fxTint(b, "#1D9E75", [{opacity: 0}, {opacity: .3, offset: .3}, {opacity: 0}]);
+    fxSprite(b, "🕊️", w / 2 - 14, h - 30, 28).animate([{transform: "translateY(0)", opacity: 0}, {opacity: 1, offset: .2},
+      {transform: `translateY(-${h - 20}px)`, opacity: 0}], {duration: FX_MS, easing: "ease-out", fill: "both"}); },
+  E06(b, w, h) { fxTint(b, "#ff7a1a", [{opacity: 0}, {opacity: 0, offset: .35}, {opacity: .6, offset: .45}, {opacity: 0}]);
+    [0, 1, 2].forEach(i => fxSprite(b, "☄️", w * (.2 + .3 * i) - 40, -40, 26).animate(
+      [{transform: "translate(0,0)"}, {transform: `translate(40px,${h * .6 + 40}px)`}], {duration: 900, delay: 200 + i * 220, easing: "ease-in", fill: "both"})); },
+  E07(b, w, h) { fxTint(b, "#a0522d");
+    [0, 1].forEach(i => fxSprite(b, "🐕", w + 10, h / 2 - 30 + i * 28, 26).animate(
+      [{transform: "translateX(0)"}, {transform: `translateX(-${w / 2 + 20}px)`, offset: .45}, {transform: `translateX(-${w / 2 + 20}px)`, offset: .7},
+       {transform: `translateX(0)`}], {duration: FX_MS, delay: i * 150, fill: "both"}));
+    fxSprite(b, "🍖", w / 2 - 12, h / 2 - 10, 22).animate([{transform: "scale(1)"}, {transform: "scale(1.4)", offset: .5}, {transform: "scale(0)"}],
+      {duration: FX_MS, fill: "both"}); },
+  E08(b, w, h) { fxTint(b, "#ffd166", [{opacity: 0}, {opacity: .5, offset: .3}, {opacity: .3, offset: .8}, {opacity: 0}]);
+    ["🍗", "🍎", "🍖", "🍉", "⚔️"].forEach((ch, i) => fxSprite(b, ch, w / 2 - 12, h / 2 - 12, 24).animate(
+      [{transform: "translate(0,0) scale(0)"}, {transform: `translate(${Math.cos(i * 1.26) * w * .3}px,${Math.sin(i * 1.26) * h * .3}px) scale(1.2)`, offset: .4},
+       {transform: `translate(${Math.cos(i * 1.26) * w * .3}px,${Math.sin(i * 1.26) * h * .3}px) scale(1)`}], {duration: FX_MS, delay: i * 80, fill: "both"})); },
+};
+function playEvent(ev) {
+  const layer = $("fx"); if (!layer) return;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  (ev.zones || []).forEach(z => {
+    const el = document.querySelector(`#map .zone.${ZC[z]}`); if (!el) return;
+    const b = document.createElement("div"); b.className = "fxbox";
+    Object.assign(b.style, {left: el.offsetLeft + "px", top: el.offsetTop + "px", width: el.offsetWidth + "px", height: el.offsetHeight + "px"});
+    layer.appendChild(b);
+    if (!reduce && FX[ev.id]) FX[ev.id](b, el.offsetWidth, el.offsetHeight);
+    const lab = document.createElement("div"); lab.className = "fxlabel"; lab.textContent = FX_LABEL[ev.id] || ev.name; b.appendChild(lab);
+    setTimeout(() => b.remove(), FX_MS + 400);
+  });
+}
+function fxKey(ev) { return `${String(V.step || "local").split("-")[0]}:${ev.round}:${ev.id}`; }
+function playNewEvents() {
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem("arena_fx_seen") || "[]"); } catch (e) {}
+  (V.random_events || []).filter(ev => ev.round === V.round && !seen.includes(fxKey(ev))).forEach(ev => {
+    seen.push(fxKey(ev)); setTimeout(() => playEvent(ev), 300);
+  });
+  try { localStorage.setItem("arena_fx_seen", JSON.stringify(seen.slice(-50))); } catch (e) {}
+}
+/* ---------- end fx ---------- */
+
 /* ---------- dice ---------- */
 let ROLLING = false;
 const rollKey = () => `arena_roll_${V.step || (V.round + "_" + V.phase)}_${V.seat}`;
@@ -202,7 +293,8 @@ function rollDice() {
   const faces = V.me.attack, n = V.me.attack_rolls || 1;
   const final = Array.from({length: n}, () => randInt(faces));
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const done = () => { FORM.roll = final; keepRoll(final); ROLLING = false; touch(); renderForm(); };
+  const done = () => { FORM.roll = final; keepRoll(final); ROLLING = false; touch(); renderForm();
+    document.querySelectorAll("#diceArea .die").forEach(d => d.classList.add("landed")); };
   if (reduce) return done();
   ROLLING = true;
   $("rollBtn").disabled = true;
@@ -264,6 +356,10 @@ function render() {
   const turn = order.length ? "🎲 桌游模式 · 行动顺序:" + order.map(s => (V.acted || []).includes(s) ? `s${s}✓` : s === cur ? `▶s${s}` : `s${s}`).join(" ") : "";
   $("zones").textContent = [turn, V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
   renderMap(); renderMe(); renderMsgs(); renderForm(); renderReflect(); renderResult();
+  const last = (V.random_events || []).slice(-1)[0];
+  $("fxReplay").hidden = !last;
+  if (last) { $("fxReplay").textContent = `▶ 重播:${last.name}(第 ${last.round} 回合)`; $("fxReplay").onclick = () => playEvent(last); }
+  playNewEvents();
   $("brief").textContent = V.brief;
 }
 

@@ -128,7 +128,7 @@ const STATUS = {your_turn:"轮到你了",submitted:"已提交,等待其他人",w
 const PHASE = {start:"准备中",move:"移动",act:"行动",reflect:"收感悟",over:"结束"};
 const XLABEL = {eat:"吃食物",trade:"交换(给同区玩家一张牌)",steal:"偷牌(掷 d4 出 4 成功)",craft:"合成武器",poison:"下毒(2 食物→毒食物)",peek:"偷看身份(每局一次)",feed:"喂食",bomb:"做炸弹"};
 const WICON = {"弓":"🏹","三叉戟":"🔱","斧子":"🪓","长剑":"🗡️","弯刀":"🗡️","双节棍":"🥢"};
-let V = null, SIG = "", EDITING = false, FORM = null, FORMKEY = "";
+let REPICKED = false, V = null, SIG = "", EDITING = false, FORM = null, FORMKEY = "";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pl = (s) => V.players.find(p => p.seat === +s);
@@ -140,6 +140,7 @@ async function poll() {
   try {
     const r = await fetch(API("/api/view"), {cache: "no-store"});
     const d = await r.json();
+    if (r.status === 403 && !REPICKED) { REPICKED = true; return pickSeat(); }   // old link: find this game's seat
     if (!r.ok) { $("fatal").textContent = d.error || "读取失败"; return; }
     $("fatal").textContent = "";
     const sig = JSON.stringify(d);
@@ -417,7 +418,19 @@ function renderResult() {
   }).join("") + `<div class="row"><a href="/">打开观战页看完整回放和所有人的思考 →</a></div>`;
 }
 
-if (!SEAT || !KEY) $("fatal").textContent = "链接缺少 seat 或 key 参数";
+async function pickSeat() {
+  let r, d;
+  try { r = await fetch("/api/my_seats", {cache: "no-store"}); d = await r.json(); }
+  catch (e) { $("fatal").textContent = "连不上服务器"; return; }
+  if (!r.ok) { $("fatal").textContent = d.error; return; }
+  const go = (s) => { location.search = `?seat=${s.seat}&key=${encodeURIComponent(s.key)}`; };
+  if (d.seats.length === 1) return go(d.seats[0]);
+  if (!d.seats.length) { $("fatal").textContent = "这一局没有人类座位。开局时加上 --humans 1 才能加入。"; return; }
+  $("notice").innerHTML = `<div class="panel"><h3>选择你的座位</h3><div class="chips">${d.seats.map((s, i) => `<button class="chip" data-pick="${i}">s${s.seat} ${esc(s.name)}</button>`).join("")}</div></div>`;
+  document.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => go(d.seats[+b.dataset.pick]));
+}
+
+if (!SEAT || !KEY) pickSeat();
 else { poll(); setInterval(poll, 2000); }
 </script>
 </body>

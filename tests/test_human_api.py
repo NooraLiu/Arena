@@ -105,3 +105,9 @@ def test_reflection_after_game_over_reaches_the_record(game):
     game._save(eng)
     assert A.post_decision(0, _key(game), {"reflection": "结束后才写"})[0] == 200
     assert game._load().reflections[0] == "结束后才写"
+
+
+def test_local_visitor_can_list_human_seats_remote_cannot(game):
+    code, r = A.my_seats(local=True)
+    assert code == 200 and r["seats"] == [{"seat": 0, "key": _key(game), "name": game._load()._p(0).character.name}]
+    assert A.my_seats(local=False)[0] == 403

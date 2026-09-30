@@ -107,6 +107,10 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/play.html":
             with open(os.path.join(os.path.dirname(__file__), "play.html"), encoding="utf-8") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif u.path == "/api/my_seats":
+            local = self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+            code, body = human_api.my_seats(local)
+            self._send(code, json.dumps(body, ensure_ascii=False))
         elif u.path == "/api/view":
             seat, key = self._seat_key(u)
             code, body = (400, {"error": "缺少 seat"}) if seat is None else human_api.get_view(seat, key)

@@ -82,3 +82,14 @@ def post_decision(seat, key, body):
         if _all_human(eng):
             S.advance()                          # nobody else will: no AI seats, no Claude needed
         return 200, {"ok": True}
+
+
+def my_seats(local):
+    """Human seats of the current game with their keys -- only for a visitor on this computer,
+    so one person playing locally can open /play.html without a seat link."""
+    if not local:
+        return 403, {"error": "只有在运行服务器的这台电脑上才能直接进入,别的设备请用带口令的链接"}
+    with LOCK:
+        eng = S._load()
+    return 200, {"seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
+                           for s, k in sorted(getattr(eng, "humans", {}).items())]}

@@ -370,7 +370,6 @@ const Dice3D = (() => {
     camera.position.set(0, .7, 8.2); camera.lookAt(0, 0, 0);
     scene.add(new T.HemisphereLight(0xe8e0ff, 0x1a0f2e, .6));
     const key = new T.DirectionalLight(0xffffff, .9); key.position.set(-3, 5, 6); scene.add(key);
-    const rim1 = new T.PointLight(0x9d6bff, 1.4, 20); rim1.position.set(4, 1, -2); scene.add(rim1);
     const rim2 = new T.PointLight(0x47d7ff, .9, 20); rim2.position.set(-4, -2, -1); scene.add(rim2);
     const front = new T.DirectionalLight(0xfff2dc, .45); front.position.set(0, -3.5, 7); scene.add(front);   // soft light from the player, a little below
     const glint = new T.PointLight(0xffd580, 0, 12); scene.add(glint);                 // a moving highlight while spinning
@@ -518,7 +517,7 @@ const Dice3D = (() => {
 
 const FX_MS = 3200;
 const FX_LABEL = {E01: "🐺 变异狼群 -4", E02: "🌊 洪水:手中武器冲回牌堆", E03: "🐒 猴群:抢走已装备武器", E04: "🌪️ 沙尘暴:本回合不能移动",
-                  E05: "🕊️ 和平日:无事发生", E06: "☄️ 火球 -3", E07: "🐕 饿狗:交 2 食物或 -3", E08: "🍗 盛宴:下回合中心多抽 2 张"};
+                  E05: "🕊️ 和平日:无事发生", E06: "☄️ 火球 -3", E07: "🐕 饿狗:交 2 食物或 -3", E08: "🍗 盛宴预告:下回合在中心多抽 2 张手牌(中心没牌了就 health +3)"};
 const FX_DAMAGE = {E01: 4, E06: 3};
 
 /* A tiny particle system on a canvas laid over one zone. Each effect gets (ctx, w, h, t, s):
@@ -530,8 +529,8 @@ function fxCanvas(box, w, h) {
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 const ease = t => 1 - Math.pow(1 - t, 3);
-function emoji(g, ch, x, y, size, rot, alpha) {
-  g.save(); g.globalAlpha = alpha ?? 1; g.translate(x, y); if (rot) g.rotate(rot);
+function emoji(g, ch, x, y, size, rot, alpha, flip) {   // flip: mirror it (animal emoji face left)
+  g.save(); g.globalAlpha = alpha ?? 1; g.translate(x, y); if (rot) g.rotate(rot); if (flip) g.scale(-1, 1);
   g.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(ch, 0, 0); g.restore();
 }
@@ -544,13 +543,49 @@ function drawParts(g, parts, dt, gravity) {
 }
 function envelope(t, inT, outT) { return Math.min(1, t / inT, (1 - t) / outT); }
 
+/* Three torn gashes, raked in one quick swipe: curved, fat in the middle and fine at the ends,
+   dark wound with a raw red rim and a pale torn edge, a few drops, then a slow fade. */
+function clawMarks(g, w, h, t, s) {
+  if (!s.claw) s.claw = [-1, 0, 1].map(k => ({k, jag: Array.from({length: 26}, () => .75 + Math.random() * .5),
+    drops: Array.from({length: 3}, () => ({at: .3 + Math.random() * .5, len: 0, v: 18 + Math.random() * 26}))}));
+  const swipe = Math.min(1, Math.max(0, (t - .04) / .12)), fade = t < .7 ? 1 : 1 - (t - .7) / .3;
+  if (swipe <= 0) return;
+  const S = Math.min(w, h), cx = w * .5, cy = h * .48;
+  s.claw.forEach((c, ci) => {
+    const off = c.k * S * .17, p0 = [cx - S * .32 + off, cy - S * .36], p2 = [cx + S * .3 + off, cy + S * .4], p1 = [cx + off * .6 + S * .12, cy - S * .05];
+    const lag = Math.min(1, Math.max(0, swipe * 1.25 - ci * .1)), N = 25, L = [], R = [];
+    for (let i = 0; i <= N; i++) {
+      const u = i / N * lag, a = 1 - u;
+      const x = a * a * p0[0] + 2 * a * u * p1[0] + u * u * p2[0], y = a * a * p0[1] + 2 * a * u * p1[1] + u * u * p2[1];
+      const dx = 2 * a * (p1[0] - p0[0]) + 2 * u * (p2[0] - p1[0]), dy = 2 * a * (p1[1] - p0[1]) + 2 * u * (p2[1] - p1[1]), dl = Math.hypot(dx, dy) || 1;
+      const width = S * .045 * Math.pow(Math.sin(Math.PI * (i / N)), .7) * c.jag[i];
+      L.push([x - dy / dl * width, y + dx / dl * width]); R.push([x + dy / dl * width * .6, y - dx / dl * width * .6]);
+    }
+    const poly = (pts, scale) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); };
+    g.save(); g.globalAlpha = fade;
+    g.shadowColor = "rgba(255,40,40,.8)"; g.shadowBlur = 10;
+    poly(L.concat(R.reverse())); g.closePath(); g.fillStyle = "#7a0710"; g.fill();       // raw red rim
+    g.shadowBlur = 0;
+    const inner = L.map((pt, i) => { const r = R[R.length - 1 - i]; return [(pt[0] * 2 + r[0]) / 3, (pt[1] * 2 + r[1]) / 3]; });
+    poly(inner.concat(R.slice().reverse().map((pt, i) => { const l = L[i]; return [(pt[0] * 2 + l[0]) / 3, (pt[1] * 2 + l[1]) / 3]; }).reverse()));
+    g.closePath(); g.fillStyle = "#2a0004"; g.fill();                                     // the deep wound
+    g.strokeStyle = "rgba(255,170,160,.55)"; g.lineWidth = 1; poly(L); g.stroke();         // pale torn edge
+    if (lag > .98) c.drops.forEach(d => { const i = Math.round(d.at * N), [x, y] = L[Math.min(L.length - 1, i)];
+      d.len = Math.min(S * .18, d.len + d.v / 60); g.fillStyle = "#6a0610";
+      g.beginPath(); g.moveTo(x - 1.2, y); g.lineTo(x + 1.2, y); g.lineTo(x + .8, y + d.len); g.arc(x, y + d.len, 1.8, 0, Math.PI); g.lineTo(x - .8, y + d.len); g.fill(); });
+    g.restore();
+  });
+  if (swipe < 1) {                                                                     // the bright edge of the swipe itself
+    const x = w * (.2 + .6 * swipe), y = h * (.12 + .76 * swipe);
+    const grd = g.createRadialGradient(x, y, 0, x, y, 22); grd.addColorStop(0, "rgba(255,240,230,.9)"); grd.addColorStop(1, "rgba(255,80,80,0)");
+    g.fillStyle = grd; g.beginPath(); g.arc(x, y, 22, 0, 7); g.fill();
+  }
+}
+
 const FX = {
   E01(g, w, h, t, s, dt) {                               // wolves: claw slashes, then the pack bounds through
-    g.fillStyle = `rgba(160,20,20,${.28 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
-    const slash = Math.min(1, t / .22);
-    g.strokeStyle = `rgba(255,70,70,${envelope(t, .05, .4)})`; g.lineWidth = 4; g.lineCap = "round";
-    [-1, 0, 1].forEach(k => { const x0 = w * .3 + k * 16, y0 = h * .15, x1 = w * .7 + k * 16, y1 = h * .85;
-      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + (x1 - x0) * slash, y0 + (y1 - y0) * slash); g.stroke(); });
+    g.fillStyle = `rgba(120,10,10,${.3 * envelope(t, .08, .35)})`; g.fillRect(0, 0, w, h);
+    clawMarks(g, w, h, t, s);
     const dust = particles(s, "dust", 0, () => ({}));
     [0, 1, 2].forEach(i => { const tt = (t - .18 - i * .1) / .55; if (tt < 0 || tt > 1) return;
       const x = -40 + (w + 80) * tt, y = h * (.3 + .22 * i) - Math.abs(Math.sin(tt * 18)) * 10;
@@ -575,7 +610,7 @@ const FX = {
     const mx = ax + Math.sin(ang) * L, my = ay + Math.cos(ang) * L;
     g.strokeStyle = "rgba(70,120,40,.9)"; g.lineWidth = 3; g.beginPath(); g.moveTo(ax, ay);
     g.quadraticCurveTo(ax + Math.sin(ang) * L * .5 + 6, ay + Math.cos(ang) * L * .5, mx, my); g.stroke();
-    emoji(g, "🐒", mx, my + 8, 30, -ang * .4);
+    emoji(g, "🐒", mx, my + 8, 30, -ang * .4, 1, true);
     const grabbed = ang > -.05;
     emoji(g, "⚔️", grabbed ? mx + 12 : w * .5, grabbed ? my + 20 : h * .62, 22, grabbed ? t * 8 : 0);
     const leaves = particles(s, "l", 10, () => ({x: rnd(0, w), y: rnd(-h, 0), vy: rnd(20, 45), sway: rnd(0, 6)}));
@@ -601,7 +636,7 @@ const FX = {
     g.restore();
     const petals = particles(s, "p", 14, () => ({x: rnd(0, w), y: rnd(-h, 0), vy: rnd(18, 34), ph: rnd(0, 6)}));
     petals.forEach(p => { p.y += p.vy * dt; emoji(g, "🌸", p.x + Math.sin(p.y / 14 + p.ph) * 9, p.y, 11, p.y / 30, .85 * k); });
-    emoji(g, "🕊️", w * .2 + w * .6 * t, h * .7 - h * .55 * ease(t) + Math.sin(t * 22) * 4, 28, 0, k);
+    emoji(g, "🕊️", w * .2 + w * .6 * t, h * .7 - h * .55 * ease(t) + Math.sin(t * 22) * 4, 28, 0, k, true);
   },
   E06(g, w, h, t, s, dt) {                               // fireballs: glowing streaks, impact flash, sparks, scorch
     const falls = particles(s, "f", 3, (_, i) => ({x0: rnd(-.2, .3) * w + i * w * .28, tx: w * (.25 + .25 * i) + rnd(-10, 10), ty: h * rnd(.55, .75), t0: .05 + i * .12}));
@@ -632,25 +667,60 @@ const FX = {
   E07(g, w, h, t, s, dt) {                               // hungry dogs: dogs charge in, food flies off
     g.fillStyle = `rgba(120,60,20,${.2 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
     const dust = particles(s, "d", 0, () => ({}));
-    [0, 1].forEach(i => { const tt = t < .45 ? ease(t / .45) : t < .7 ? 1 : 1 - ease((t - .7) / .3);
-      const x = w + 30 - (w * .55 + 30) * tt + i * 26, y = h * (.42 + i * .2) - Math.abs(Math.sin(t * 40 + i)) * 6;
+    // x along the way: dash in from the right, stop at the food, then on out to the left (always facing left)
+    const along = t < .4 ? ease(t / .4) * .5 : t < .58 ? .5 : .5 + .5 * Math.pow((t - .58) / .42, 1.6);
+    if (t < .5) emoji(g, "🍖", w * .45, h * .58, 20, 0, 1);
+    [0, 1].forEach(i => { const x = (w + 40) - (w + 110) * along + i * 30, y = h * (.42 + i * .2) - (t > .4 && t < .58 ? 0 : Math.abs(Math.sin(t * 40 + i)) * 6);
       emoji(g, "🐕", x, y, 28, 0);
-      if (Math.random() < .4) dust.push({x: x + 14, y: y + 12, vx: rnd(10, 40), vy: rnd(-15, 0), r: rnd(2, 4), life: .5, max: .5, color: "#b58b5a", a: .6, grow: 1.4}); });
+      if (i === 0 && t >= .5) emoji(g, "🍖", x - 16, y + 6, 16, -.4);                     // carried off in its mouth
+      if (t < .4 || t > .58) if (Math.random() < .45) dust.push({x: x + 14, y: y + 12, vx: rnd(10, 40), vy: rnd(-15, 0), r: rnd(2, 4), life: .5, max: .5, color: "#b58b5a", a: .6, grow: 1.4}); });
     drawParts(g, dust, dt, 0);
-    [0, 1].forEach(i => { const k = (t - .35 - i * .08) / .4; if (k < 0 || k > 1) return;
-      emoji(g, "🍖", w * .5 + (i ? 1 : -1) * k * w * .35, h * .5 - Math.sin(k * Math.PI) * h * .35, 20, k * 9, 1 - k * .3); });
   },
-  E08(g, w, h, t, s, dt) {                               // feast: golden rays, confetti, food raining in
-    const k = envelope(t, .15, .25);
-    g.save(); g.translate(w / 2, h / 2); g.rotate(t * 1.4);
-    for (let i = 0; i < 12; i++) { g.rotate(Math.PI / 6); g.fillStyle = `rgba(255,209,102,${.16 * k})`;
-      g.beginPath(); g.moveTo(0, 0); g.lineTo(-10, Math.max(w, h)); g.lineTo(10, Math.max(w, h)); g.fill(); }
+  E08(g, w, h, t, s, dt) {                               // feast: a golden banquet table laid out under falling light
+    const k = envelope(t, .12, .2), S = Math.min(w, h);
+    const glow = g.createRadialGradient(w / 2, h * .45, 0, w / 2, h * .45, Math.max(w, h) * .8);
+    glow.addColorStop(0, `rgba(255,214,120,${.45 * k})`); glow.addColorStop(1, "rgba(255,180,60,0)");
+    g.fillStyle = glow; g.fillRect(0, 0, w, h);
+    g.save(); g.globalCompositeOperation = "lighter";                                     // shafts of light from above
+    for (let i = 0; i < 4; i++) { const x = w * (.2 + .2 * i) + Math.sin(t * 2 + i) * 6;
+      const sh = g.createLinearGradient(x, 0, x, h); sh.addColorStop(0, `rgba(255,225,150,${.28 * k})`); sh.addColorStop(1, "rgba(255,225,150,0)");
+      g.fillStyle = sh; g.beginPath(); g.moveTo(x - 6, 0); g.lineTo(x + 6, 0); g.lineTo(x + 22, h); g.lineTo(x - 22, h); g.fill(); }
     g.restore();
-    const confetti = particles(s, "c", 40, () => ({x: rnd(0, w), y: rnd(-h, 0), vy: rnd(40, 90), vx: rnd(-20, 20), r: rnd(1.5, 3), color: ["#ffd166", "#ff8fab", "#7ee787", "#6ea8fe"][Math.floor(rnd(0, 4))], life: 9, max: 9}));
-    drawParts(g, confetti, dt, 0);
-    ["🍗", "🍎", "🍖", "🍉", "🥩"].forEach((ch, i) => { const tt = (t - .1 - i * .08) / .45; if (tt < 0) return;
-      const x = w * (.18 + .16 * i), y = Math.min(h * .62, -20 + h * .82 * ease(Math.min(1, tt))) - (tt > 1 ? 0 : Math.sin(tt * 9) * 4);
-      emoji(g, ch, x, y, 22, 0, k); });
+    // the table: a cloth-covered top in perspective, gold trim, legs
+    const rise = ease(Math.min(1, t / .25)), ty = h * .5 + (1 - rise) * 20;
+    const tl = w * .16, tr = w * .84, bl = w * .06, br = w * .94, top = ty, bot = ty + S * .22;
+    g.globalAlpha = k;
+    g.fillStyle = "#3b2414"; [[bl + 10, bot], [br - 16, bot]].forEach(([x, y]) => g.fillRect(x, y, 6, h - y));
+    const cloth = g.createLinearGradient(0, top, 0, bot); cloth.addColorStop(0, "#fff6e0"); cloth.addColorStop(1, "#e6d2a6");
+    g.fillStyle = cloth; g.beginPath(); g.moveTo(tl, top); g.lineTo(tr, top); g.lineTo(br, bot); g.lineTo(bl, bot); g.closePath(); g.fill();
+    g.fillStyle = "#d9a83e"; g.beginPath(); g.moveTo(bl, bot); g.lineTo(br, bot); g.lineTo(br - 4, bot + 8); g.lineTo(bl + 4, bot + 8); g.fill();   // gold hem
+    g.strokeStyle = "rgba(160,110,20,.7)"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(tl, top); g.lineTo(tr, top); g.stroke();
+    // gold plates, then the food lands on them one by one
+    const dishes = ["🍗", "🥩", "🍉", "🍎", "🍖"];
+    dishes.forEach((ch, i) => {
+      const u = (i + .5) / dishes.length, x = bl + (br - bl) * u * .9 + (br - bl) * .05, y = top + (bot - top) * .55;
+      const pg = g.createRadialGradient(x - 3, y - 2, 1, x, y, S * .07); pg.addColorStop(0, "#fff1b0"); pg.addColorStop(.6, "#e0ac3c"); pg.addColorStop(1, "#8a5d12");
+      g.fillStyle = pg; g.beginPath(); g.ellipse(x, y, S * .075, S * .03, 0, 0, 7); g.fill();
+      const land = (t - .18 - i * .07) / .2; if (land < 0) return;
+      const dropY = y - 6 - (1 - ease(Math.min(1, land))) * S * .5, bounce = land > 1 && land < 1.4 ? Math.sin((land - 1) / .4 * Math.PI) * 3 : 0;
+      emoji(g, ch, x, dropY - bounce, S * .13, 0, k);
+    });
+    // candles with flickering flames
+    [.32, .68].forEach((u, ci) => { const x = tl + (tr - tl) * u, y = top - 2;
+      g.fillStyle = "#f5ecd6"; g.fillRect(x - 2.5, y - S * .14, 5, S * .14);
+      const fl = 1 + Math.sin(t * 40 + ci * 3) * .15 + Math.sin(t * 23) * .1;
+      const fg = g.createRadialGradient(x, y - S * .16, 0, x, y - S * .16, 10 * fl); fg.addColorStop(0, "#fffbe0"); fg.addColorStop(.4, "#ffc34a"); fg.addColorStop(1, "rgba(255,120,0,0)");
+      g.fillStyle = fg; g.beginPath(); g.ellipse(x, y - S * .17, 4 * fl, 8 * fl, 0, 0, 7); g.fill(); });
+    g.globalAlpha = 1;
+    // glints: four-point stars that twinkle, and gold dust drifting up
+    const stars = particles(s, "st", 14, () => ({x: rnd(0, w), y: rnd(0, h * .8), ph: rnd(0, 6), sz: rnd(3, 7)}));
+    stars.forEach(p => { const tw = Math.max(0, Math.sin(t * 9 + p.ph)) * k; if (tw < .05) return;
+      g.fillStyle = `rgba(255,240,190,${tw})`; g.beginPath(); const r = p.sz * tw;
+      g.moveTo(p.x, p.y - r); g.quadraticCurveTo(p.x, p.y, p.x + r, p.y); g.quadraticCurveTo(p.x, p.y, p.x, p.y + r);
+      g.quadraticCurveTo(p.x, p.y, p.x - r, p.y); g.quadraticCurveTo(p.x, p.y, p.x, p.y - r); g.fill(); });
+    const dust = particles(s, "gd", 30, () => ({x: rnd(0, w), y: rnd(h * .3, h), vx: rnd(-6, 6), vy: rnd(-26, -10), r: rnd(.8, 2), color: "#ffd77a", life: 9, max: 9, a: .8}));
+    dust.forEach(p => { if (p.y < 0) { p.y = h; } });
+    drawParts(g, dust, dt, 0);
   },
 };
 

@@ -10,6 +10,7 @@ import os
 from arena.engine import build_observation
 from arena.models import Zone, CardType
 from arena import identities
+from arena import config
 from play import session as S
 from play.briefing import fill_for
 
@@ -232,6 +233,10 @@ def human_view(eng, seat):
             "frozen": _names(st.frozen_zones),
             "players": players, "me": me, "messages": messages, "events": events,
             "random_events": random_events,
+            "event_rounds": list(config.EVENT_ROUNDS),
+            "event_history": [{"round": e.round_no, "id": e.payload.get("id"), "name": e.payload.get("name")}
+                              for e in eng.log.events if e.type == "random_event"],
+            "shrinking": len(eng.alive_players()) <= config.SHRINK_TRIGGER,
             "options": _options(eng, seat, ph) if status in ("your_turn", "submitted") else None,
             "brief": getattr(eng, "briefs", {}).get(seat, ""),
             "submitted": _read_decision(seat) if status == "submitted" else None,

@@ -143,7 +143,7 @@ const Dice3D = (() => {
       if (corners) {
         marks = fi.verts.map(v => { const [u, w] = uvOf(fi, v), [cu, cw] = [.5, .5];
           const x = (cu + (u - cu) * .58) * 256, y = (1 - (cw + (w - cw) * .58)) * 256, dx = (u - cu) * 256, dy = -(w - cw) * 256;
-          return {text: String(corners.find(c => c.v.distanceTo(v) < 1e-4).label), x, y, rot: Math.atan2(dx, -dy), size: 58}; });
+          return {text: String(corners.find(c => c.v.distanceTo(v) < 1e-4).label), x, y, rot: Math.atan2(dx, -dy), size: 68}; });
       } else if (idx < K.labels.length) {
         label = K.labels[idx];
         const n = fi.verts.length, size = coin ? 130 : n === 3 ? (K.shape === "d20" ? 84 : 100) : n === 4 && K.shape === "d10" ? 66 : n === 4 ? 128 : 104;
@@ -196,6 +196,7 @@ const Dice3D = (() => {
     const key = new T.DirectionalLight(0xffffff, .9); key.position.set(-3, 5, 6); scene.add(key);
     const rim1 = new T.PointLight(0x9d6bff, 1.4, 20); rim1.position.set(4, 1, -2); scene.add(rim1);
     const rim2 = new T.PointLight(0x47d7ff, .9, 20); rim2.position.set(-4, -2, -1); scene.add(rim2);
+    const front = new T.DirectionalLight(0xfff2dc, .45); front.position.set(0, -3.5, 7); scene.add(front);   // soft light from the player, a little below
     const glint = new T.PointLight(0xffd580, 0, 12); scene.add(glint);                 // a moving highlight while spinning
     const dice = [], scale = n > 1 ? .84 : 1, gap = 2.7;
     for (let i = 0; i < n; i++) {
@@ -213,11 +214,10 @@ const Dice3D = (() => {
     const sparks = new T.Points(pg, pm); scene.add(sparks);
     const landing = (d, v, i) => {                    // the rolled face turned straight at the player, number upright
       const f = d.rests.find(x => x.label === v) || d.rests[0];
-      if (f.corner) {                                  // d4: the rolled corner points up, two faces show its number
-        const apex = new T.Vector3(0, 1, .3).normalize();
-        return new T.Quaternion().setFromAxisAngle(apex, Math.PI / 3.2).multiply(orient(f, apex, new T.Vector3(0, 0, -1)));
-      }
-      return orient(f, new T.Vector3().subVectors(camera.position, dice[i].home), new T.Vector3(0, 1, 0));
+      const toPlayer = new T.Vector3().subVectors(camera.position, dice[i].home);
+      // d4: the rolled corner points straight at the player; its number sits by that tip on all three
+      // faces around it, upright on the face below the tip
+      return orient(f, toPlayer, new T.Vector3(0, 1, 0));
     };
     let raf = 0, dead = false, stage = el, nodes = [...el.childNodes];
     const draw = () => renderer.render(scene, camera);

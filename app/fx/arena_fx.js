@@ -120,8 +120,15 @@ const Dice3D = (() => {
     const faceInfo = list.map(f => {
       const verts = []; f.tris.flat().forEach(v => { if (!verts.some(w => w.distanceTo(v) < 1e-4)) verts.push(v); });
       const c = verts.reduce((s, v) => s.add(v), new T.Vector3()).multiplyScalar(1 / verts.length);
-      const a = new T.Vector3().subVectors(verts[0], c); a.sub(f.n.clone().multiplyScalar(a.dot(f.n))).normalize();
-      return {f, verts, c, a, b: new T.Vector3().crossVectors(f.n, a), R: Math.max(...verts.map(v => v.distanceTo(c)))};
+      // which way is "up" on this face: triangles point up (like a real d8/d20), d10 kites point their long tip up,
+      // squares and pentagons sit on an edge
+      let up;
+      if (verts.length === 3 || coin) up = new T.Vector3().subVectors(verts[0], c);
+      else if (K.shape === "d10") up = new T.Vector3().subVectors(verts.reduce((m, v) => v.distanceTo(c) > m.distanceTo(c) ? v : m), c);
+      else { const nb = verts.slice(1).reduce((m, v) => v.distanceTo(verts[0]) < m.distanceTo(verts[0]) ? v : m);
+             up = new T.Vector3().addVectors(verts[0], nb).multiplyScalar(.5).sub(c); }
+      const b = up.sub(f.n.clone().multiplyScalar(up.dot(f.n))).normalize();
+      return {f, verts, c, a: new T.Vector3().crossVectors(b, f.n), b, R: Math.max(...verts.map(v => v.distanceTo(c)))};
     });
     const uvOf = (fi, v) => { const d = new T.Vector3().subVectors(v, fi.c); return [.5 + d.dot(fi.a) / (2.05 * fi.R), .5 + d.dot(fi.b) / (2.05 * fi.R)]; };
     // d4 is read at the corner that points up: every face carries its three corners' numbers
@@ -204,28 +211,36 @@ const Dice3D = (() => {
     const pg = new T.BufferGeometry(); pg.setAttribute("position", new T.BufferAttribute(sp, 3));
     const pm = new T.PointsMaterial({size: .22, map: spriteTex(), transparent: true, depthWrite: false, blending: T.AdditiveBlending, opacity: 0, color: 0xffd98a});
     const sparks = new T.Points(pg, pm); scene.add(sparks);
-    const landing = (d, v) => {
+    const landing = (d, v, i) => {                    // the rolled face turned straight at the player, number upright
       const f = d.rests.find(x => x.label === v) || d.rests[0];
-      if (f.corner) {                                  // apex up, turned so two faces show
+      if (f.corner) {                                  // d4: the rolled corner points up, two faces show its number
         const apex = new T.Vector3(0, 1, .3).normalize();
         return new T.Quaternion().setFromAxisAngle(apex, Math.PI / 3.2).multiply(orient(f, apex, new T.Vector3(0, 0, -1)));
       }
-      const view = d.shape === "d10" ? new T.Vector3(.1, .16, 1) : new T.Vector3(.32, .36, 1);   // three-quarter view (d10: kites are narrow)
-      return orient(f, view, new T.Vector3(0, 1, 0));
+      return orient(f, new T.Vector3().subVectors(camera.position, dice[i].home), new T.Vector3(0, 1, 0));
     };
-    let raf = 0, dead = false;
+    let raf = 0, dead = false, stage = el, nodes = [...el.childNodes];
     const draw = () => renderer.render(scene, camera);
     const setGlow = (d, k) => d.mats.forEach((m, j) => { if (j && m.emissiveMap) m.emissiveIntensity = k; });
     const placeSparks = (t, spread, fade) => { seeds.forEach((s, i) => { const a = s.a + t * s.s, r = s.r * spread;
       sp[i * 3] = Math.cos(a) * r; sp[i * 3 + 1] = s.y * spread * .6 + Math.sin(t * 3 + i) * .1; sp[i * 3 + 2] = Math.sin(a) * r * .6; });
       pg.attributes.position.needsUpdate = true; pm.opacity = fade; };
+    const smooth = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+    const reveal = vals => { const best = Math.max(...vals); stage.classList.add("revealed");
+      if (best === faces) stage.classList.add("crit"); else if (best === 1) stage.classList.add("fumble"); };
     const handle = {
+      key: `${faces}x${n}`, values: values || null,
+      poses: () => dice.map(d => d.mesh.quaternion.toArray()),        // for tests: each die's orientation now
       dispose() { dead = true; cancelAnimationFrame(raf); renderer.dispose(); if (current === handle) current = null; },
+      adopt(newEl) {                                   // the page redrew its form: carry the same scene over, mid-animation
+        if (newEl === stage) return;
+        newEl.className = stage.className; newEl.innerHTML = ""; nodes.forEach(nd => newEl.appendChild(nd)); stage = newEl;
+      },
       rest(vals) {
-        cancelAnimationFrame(raf); pm.opacity = 0;
+        cancelAnimationFrame(raf); pm.opacity = 0; handle.values = vals;
         const best = Math.max(...vals);
-        dice.forEach((d, i) => { d.mesh.position.copy(d.home); d.mesh.quaternion.copy(landing(d, vals[i]));
-          const dim = n > 1 && vals[i] !== best || (n > 1 && vals.indexOf(best) !== i);
+        dice.forEach((d, i) => { d.mesh.position.copy(d.home); d.mesh.quaternion.copy(landing(d, vals[i], i));
+          const dim = n > 1 && vals.indexOf(best) !== i;
           d.mesh.scale.setScalar(scale * (dim ? .86 : 1)); setGlow(d, dim ? .25 : 1.1); });
         draw();
       },
@@ -237,68 +252,78 @@ const Dice3D = (() => {
           placeSparks(t * .3, 1, .35); draw(); raf = requestAnimationFrame(loop); };
         raf = requestAnimationFrame(loop);
       },
+      /* One continuous motion, worked backwards from the result: each die turns about one axis by
+         (a whole number of turns + exactly the angle between where it is now and its landing pose),
+         speeding up then easing to a stop, so it starts where it was and stops on the rolled face;
+         a tumble that is zero at both ends rides on top, and a damped rock settles it. */
       roll(vals) {
-        cancelAnimationFrame(raf);
-        if (REDUCED()) { handle.rest(vals); el.classList.add("revealed"); return Promise.resolve(); }
+        cancelAnimationFrame(raf); handle.values = vals;
+        if (REDUCED()) { handle.rest(vals); reveal(vals); return Promise.resolve(); }
         return new Promise(done => {
-          const D = 2100, SPIN = .68, t0 = performance.now(), best = Math.max(...vals);
-          const plan = dice.map((d, i) => ({axis: new T.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize(),
-            axis2: new T.Vector3(Math.random() - .5, 1, Math.random() - .5).normalize(), turns: 26 + Math.random() * 8,
-            q0: d.mesh.quaternion.clone(), qEnd: landing(d, vals[i]), wob: new T.Vector3(1, Math.random() - .5, 0).normalize(), qA: null}));
+          const D = 2000, FLARE = 800, t0 = performance.now(), best = Math.max(...vals), win = vals.indexOf(best);
+          const plan = dice.map((d, i) => {
+            const qEnd = landing(d, vals[i], i), qStart = d.mesh.quaternion.clone();
+            const delta = qEnd.clone().invert().multiply(qStart); if (delta.w < 0) { delta.x *= -1; delta.y *= -1; delta.z *= -1; delta.w *= -1; }
+            const ang = 2 * Math.acos(Math.min(1, delta.w)), sn = Math.sqrt(Math.max(0, 1 - delta.w * delta.w));
+            const axis = sn > 1e-4 ? new T.Vector3(delta.x / sn, delta.y / sn, delta.z / sn) : new T.Vector3(1, .4, .2).normalize();
+            const tumble = new T.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize();
+            return {qEnd, axis, total: ang + Math.PI * 2 * (3 + i), tumble, tAmp: 1.1 + Math.random() * .6,
+                    rock: new T.Vector3(1, (Math.random() - .5) * .6, 0).normalize(), y0: d.mesh.position.y - d.home.y};
+          });
+          let revealed = false;
           const loop = now => {
             if (dead) return done();
-            const t = Math.min(1, (now - t0) / D);
+            const e = now - t0, t = Math.min(1, e / D);
+            const g = Math.pow(1 - t, 3) * (1 + 3 * t);                     // 1 -> 0, still at both ends
             dice.forEach((d, i) => {
               const p = plan[i];
-              if (t < SPIN) {                            // hard spin, slowing down, rising a little
-                const k = t / SPIN, ang = p.turns * (1 - Math.pow(1 - k, 2.4));
-                d.mesh.quaternion.copy(p.q0).premultiply(new T.Quaternion().setFromAxisAngle(p.axis, ang))
-                  .premultiply(new T.Quaternion().setFromAxisAngle(p.axis2, Math.sin(k * 9) * .6));
-                d.mesh.position.y = d.home.y + Math.sin(Math.min(1, k * 1.6) * Math.PI) * .45;
-                const s = scale * (1 + Math.sin(Math.min(1, k * 4) * Math.PI) * .08); d.mesh.scale.setScalar(s);
-                setGlow(d, .5 + k * .4); p.qA = d.mesh.quaternion.clone();
-              } else {                                   // settle toward the face with an overshoot, then a damped wobble
-                const k = (t - SPIN) / (1 - SPIN), c1 = 1.9, back = 1 + (c1 + 1) * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);
-                const q = p.qA.clone().slerp(p.qEnd, Math.min(1, k * 1.25));
-                const wob = Math.exp(-7 * k) * Math.cos(k * 26) * .22;
-                q.premultiply(new T.Quaternion().setFromAxisAngle(p.wob, wob));
-                d.mesh.quaternion.copy(q);
-                d.mesh.position.y = d.home.y + (1 - back) * .15;
-                d.mesh.scale.setScalar(scale);
-              }
+              const q = p.qEnd.clone()
+                .multiply(new T.Quaternion().setFromAxisAngle(p.axis, p.total * g))
+                .multiply(new T.Quaternion().setFromAxisAngle(p.tumble, p.tAmp * Math.pow(Math.sin(Math.PI * t), 2) * (1 - t)));
+              const u = Math.max(0, (t - .8) / .2);                           // the landing rock
+              q.premultiply(new T.Quaternion().setFromAxisAngle(p.rock, .14 * Math.exp(-4 * u) * Math.sin(3 * Math.PI * u) * (1 - u)));
+              d.mesh.quaternion.copy(q);
+              d.mesh.position.y = d.home.y + p.y0 * (1 - smooth(0, .25, t)) + .55 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.15)), 2);
+              const dim = n > 1 && i !== win ? smooth(.85, 1, t) : 0;
+              const land = Math.max(0, (t - .9) / .1), pop = t < 1 ? .06 * Math.sin(Math.PI * land) : 0;
+              const flareK = Math.max(0, (e - D) / FLARE);
+              const flarePop = i === win && e > D ? .1 * Math.exp(-6 * flareK) * Math.cos(flareK * 12) : 0;
+              d.mesh.scale.setScalar(scale * (1 - .14 * dim) * (1 + pop + flarePop));
+              const glow = .55 + .55 * smooth(.7, 1, t);
+              setGlow(d, i === win && e > D ? 1.1 + 2.4 * Math.exp(-5 * flareK) : glow * (1 - .75 * dim));
             });
-            glint.intensity = t < SPIN ? 2.2 : 2.2 * (1 - (t - SPIN) / (1 - SPIN));
-            glint.position.set(Math.cos(t * 30) * 3, 1.5, Math.sin(t * 30) * 3 + 2);
-            placeSparks(t * 4, 1 + (t > .9 ? (t - .9) * 8 : 0), t < .1 ? t * 8 : t > .92 ? (1 - t) * 12 : .9);
+            glint.intensity = 2.4 * Math.sin(Math.PI * Math.min(1, t * 1.1));
+            glint.position.set(Math.cos(t * 28) * 3, 1.5, Math.sin(t * 28) * 3 + 2);
+            const burst = e > D ? (e - D) / FLARE : 0;
+            placeSparks(t * 4 + burst, 1 + burst * 2.5, e > D ? .9 * (1 - burst) : .9 * smooth(0, .12, t) * (1 - .6 * smooth(.6, .95, t)));
             draw();
-            if (t < 1) raf = requestAnimationFrame(loop);
-            else {
-              handle.rest(vals);
-              el.classList.add("revealed");
-              if (best === faces) el.classList.add("crit"); else if (best === 1) el.classList.add("fumble");
-              const d0 = dice[vals.indexOf(best)], t1 = performance.now();   // the landed number flares, then calms
-              const flare = now2 => { if (dead) return; const k = Math.min(1, (now2 - t1) / 700);
-                setGlow(d0, 1.1 + 2.4 * Math.exp(-5 * k)); d0.mesh.scale.setScalar(scale * (1 + .12 * Math.exp(-6 * k) * Math.cos(k * 14))); draw();
-                if (k < 1) raf = requestAnimationFrame(flare); };
-              raf = requestAnimationFrame(flare);
-              done();
-            }
+            if (!revealed && e >= D) { revealed = true; reveal(vals); done(); }
+            if (e < D + FLARE) raf = requestAnimationFrame(loop);
+            else { pm.opacity = 0; draw(); }
           };
           raf = requestAnimationFrame(loop);
         });
       },
     };
     current = handle;
-    if (values) { handle.rest(values); el.classList.add("revealed"); } else if (!rolling) handle.idle();
+    if (values) { handle.rest(values); reveal(values); } else if (!rolling) handle.idle();
     return handle;
   }
 
   return {
     available: has3D,
     release() { if (current) current.dispose(); },
+    current: () => current,
     name: f => kind(f).name,
-    show(el, faces, n, values) { return mount(el, faces, n, values, false); },
+    show(el, faces, n, values) {                     // reuse the scene on screen when it already shows this
+      const same = current && current.key === `${faces}x${n}` &&
+        JSON.stringify(current.values) === JSON.stringify(values || null);
+      if (same) { current.adopt(el); return current; }
+      return mount(el, faces, n, values, false);
+    },
     roll(el, faces, n, values) {
+      const here = current && current.key === `${faces}x${n}`;
+      if (here) { current.adopt(el); return current.roll(values); }   // the die on screen rolls from where it is
       const hd = mount(el, faces, n, null, true);
       if (!hd) {                                         // no WebGL: the flat dice tumble instead
         el.innerHTML = diceHTML(faces, n, null);

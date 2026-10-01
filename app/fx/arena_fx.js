@@ -433,15 +433,9 @@ function explosion(g, f, e, w, h, t) {
 }
 
 const FX = {
-  E01(g, w, h, t, s, dt) {                               // wolves: claw slashes, then the pack bounds through
+  E01(g, w, h, t, s, dt) {                               // wolves: one savage claw swipe
     g.fillStyle = `rgba(60,10,10,${.18 * envelope(t, .08, .35)})`; g.fillRect(0, 0, w, h);
     clawMarks(g, w, h, t, s);
-    const dust = particles(s, "dust", 0, () => ({}));
-    [0, 1, 2].forEach(i => { const tt = (t - .18 - i * .1) / .55; if (tt < 0 || tt > 1) return;
-      const x = -40 + (w + 80) * tt, y = h * (.3 + .22 * i) - Math.abs(Math.sin(tt * 18)) * 10;
-      emoji(g, "🐺", x, y, 30, Math.sin(tt * 18) * .12);
-      if (Math.random() < .5) dust.push({x: x - 10, y: y + 12, vx: rnd(-30, -10), vy: rnd(-20, -5), r: rnd(2, 5), life: .6, max: .6, color: "#c9a26b", a: .7, grow: 1.5}); });
-    drawParts(g, dust, dt, 0);
   },
   E02(g, w, h, t, s, dt) {                               // flood: two wave layers rise, bubble, then drain
     const level = h * (t < .45 ? ease(t / .45) * .82 : t < .75 ? .82 : .82 * (1 - ease((t - .75) / .25)));

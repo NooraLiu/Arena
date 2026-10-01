@@ -583,7 +583,7 @@ function fxCanvas(box, w, h) {
 const rnd = (a, b) => a + Math.random() * (b - a);
 const ease = t => 1 - Math.pow(1 - t, 3);
 function emoji(g, ch, x, y, size, rot, alpha, flip) {   // flip: mirror it (animal emoji face left)
-  g.save(); g.globalAlpha = alpha ?? 1; g.translate(x, y); if (rot) g.rotate(rot); if (flip) g.scale(-1, 1);
+  g.save(); g.globalAlpha = Math.max(0, Math.min(1, alpha ?? 1)); g.translate(x, y); if (rot) g.rotate(rot); if (flip) g.scale(-1, 1);
   g.fillStyle = "#000";              // color emoji take the fill's alpha: a leftover translucent tint would fade them
   g.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(ch, 0, 0); g.restore();
@@ -595,14 +595,14 @@ function drawParts(g, parts, dt, gravity) {
     g.beginPath(); g.arc(p.x, p.y, p.r * (p.grow ? 1 + (1 - p.life / p.max) * p.grow : 1), 0, 7); g.fill(); });
   g.globalAlpha = 1;
 }
-function envelope(t, inT, outT) { return Math.min(1, t / inT, (1 - t) / outT); }
+function envelope(t, inT, outT) { return Math.max(0, Math.min(1, t / inT, (1 - t) / outT)); }   // never below 0: canvas ignores a negative alpha
 
 /* Three torn gashes, raked in one quick swipe: curved, fat in the middle and fine at the ends,
    dark wound with a raw red rim and a pale torn edge, a few drops, then a slow fade. */
 function clawMarks(g, w, h, t, s) {
   if (!s.claw) s.claw = [-1, 0, 1].map(k => ({k, jag: Array.from({length: 26}, () => .75 + Math.random() * .5),
     drops: Array.from({length: 3}, () => ({at: .3 + Math.random() * .5, len: 0, v: 18 + Math.random() * 26}))}));
-  const swipe = Math.min(1, Math.max(0, (t - .04) / .12)), fade = t < .7 ? 1 : 1 - (t - .7) / .3;
+  const swipe = Math.min(1, Math.max(0, (t - .04) / .12)), fade = t < .7 ? 1 : Math.max(0, 1 - (t - .7) / .3);
   if (swipe <= 0) return;
   const S = Math.min(w, h), cx = w * .5, cy = h * .48;
   s.claw.forEach((c, ci) => {
@@ -670,7 +670,7 @@ const FX = {
     const level = h * (t < .45 ? ease(t / .45) * .82 : t < .75 ? .82 : .82 * (1 - ease((t - .75) / .25)));
     [["rgba(47,91,211,.55)", 1, 0], ["rgba(110,168,254,.55)", 1.6, 2]].forEach(([col, f, ph]) => {
       g.fillStyle = col; g.beginPath(); g.moveTo(0, h);
-      for (let x = 0; x <= w; x += 4) g.lineTo(x, h - level + Math.sin(x / 18 * f + t * 14 + ph) * 5);
+      for (let x = 0; x <= w; x += 4) g.lineTo(x, h - level + Math.sin(x / 18 * f + t * 14 + ph) * 5 * Math.min(1, level / 10));   // flat once drained
       g.lineTo(w, h); g.fill(); });
     const bubbles = particles(s, "b", 18, () => ({x: rnd(6, w - 6), y: h + rnd(0, 40), vy: rnd(-40, -20), r: rnd(2, 4.5)}));
     g.strokeStyle = "rgba(220,240,255,.8)"; g.lineWidth = 1.2;
@@ -679,17 +679,17 @@ const FX = {
   },
   E03(g, w, h, t, s) {                                   // monkeys: swing in on a vine, snatch the weapon, swing out
     g.fillStyle = `rgba(90,70,30,${.12 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
-    const ang = -1.2 + 2.4 * ease(Math.min(1, t / .9)), L = h * .85, ax = w * .5, ay = -h * .1;
+    const ang = -1.2 + 2.4 * ease(Math.min(1, t / .9)), L = h * .85, ax = w * .5, ay = -h * .1, out = envelope(t, .05, .15);   // fade out at the end
     const mx = ax + Math.sin(ang) * L, my = ay + Math.cos(ang) * L;
     const leaves = particles(s, "l", 10, () => ({x: rnd(0, w), y: rnd(-h, 0), vy: rnd(20, 45), sway: rnd(0, 6)}));
-    leaves.forEach(p => { p.y += p.vy / 60; emoji(g, "🍃", p.x + Math.sin(p.y / 12 + p.sway) * 8, p.y, 12, p.y / 20, .7); });   // behind the monkey
+    leaves.forEach(p => { p.y += p.vy / 60; emoji(g, "🍃", p.x + Math.sin(p.y / 12 + p.sway) * 8, p.y, 12, p.y / 20, .7 * out); });   // behind the monkey
     const vine = (col, lw) => { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(ax, ay);
       g.quadraticCurveTo(ax + Math.sin(ang) * L * .5 + 6, ay + Math.cos(ang) * L * .5, mx, my); g.stroke(); };
-    vine("#1e3010", 6); vine("#5f9a34", 3.5);
+    g.globalAlpha = out; vine("#1e3010", 6); vine("#5f9a34", 3.5); g.globalAlpha = 1;
     const grabbed = ang > -.05;
     g.save(); g.shadowColor = "rgba(0,0,0,.75)"; g.shadowBlur = 6; g.shadowOffsetY = 2;
-    emoji(g, "🐒", mx, my + 8, 38, -ang * .4, 1, true);
-    emoji(g, "⚔️", grabbed ? mx + 14 : w * .5, grabbed ? my + 24 : h * .62, 24, grabbed ? t * 8 : 0);
+    emoji(g, "🐒", mx, my + 8, 38, -ang * .4, out, true);
+    emoji(g, "⚔️", grabbed ? mx + 14 : w * .5, grabbed ? my + 24 : h * .62, 24, grabbed ? t * 8 : 0, out);
     g.restore();
   },
   E04(g, w, h, t, s, dt) {                               // sandstorm: fog bands and hundreds of streaking grains

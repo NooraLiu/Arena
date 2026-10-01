@@ -628,6 +628,26 @@ function clawMarks(g, w, h, t, s) {
   }
 }
 
+/* A fiery blast where a fireball lands: a white flash, rolling fire puffs that swell and cool from
+   yellow through orange and red into dark smoke that drifts up, and a scorch left behind.
+   `e` = seconds since impact. */
+function explosion(g, f, e, w, h, t) {
+  g.fillStyle = `rgba(25,12,4,${.5 * envelope(t, .01, .25)})`; g.beginPath(); g.ellipse(f.tx, f.ty + 6, 20, 7, 0, 0, 7); g.fill();   // scorch
+  if (e < .18) { const k = e / .18, r = 18 + 30 * k;
+    const fl = g.createRadialGradient(f.tx, f.ty, 0, f.tx, f.ty, r); fl.addColorStop(0, `rgba(255,255,235,${1 - k})`); fl.addColorStop(.5, `rgba(255,220,120,${.8 * (1 - k)})`); fl.addColorStop(1, "rgba(255,140,40,0)");
+    g.fillStyle = fl; g.beginPath(); g.arc(f.tx, f.ty, r, 0, 7); g.fill();
+    g.fillStyle = `rgba(255,170,60,${.3 * (1 - k)})`; g.fillRect(0, 0, w, h); }
+  const ramp = [[255, 244, 180], [255, 170, 40], [214, 70, 14], [70, 52, 44]];                                // fire cooling into smoke
+  f.puffs.forEach(p => {
+    const k = (e - p.delay) / 1.1; if (k < 0 || k > 1) return;
+    const r = p.r * (.4 + 1.6 * ease(Math.min(1, k * 1.6))), x = f.tx + p.dx * (1 + k * 1.5), y = f.ty + p.dy + p.vy * k * 1.1;
+    const c = Math.min(2.999, k * 3.4), i = Math.floor(c), m = c - i, col = ramp[i].map((v, j) => Math.round(v + (ramp[i + 1][j] - v) * m));
+    const a = (k < .1 ? k / .1 : 1) * (1 - Math.pow(k, 2)) * (i >= 2 ? .75 : .95);
+    const grd = g.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, `rgba(${col},${a})`); grd.addColorStop(.7, `rgba(${col},${a * .6})`); grd.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  });
+}
+
 const FX = {
   E01(g, w, h, t, s, dt) {                               // wolves: claw slashes, then the pack bounds through
     g.fillStyle = `rgba(120,10,10,${.3 * envelope(t, .08, .35)})`; g.fillRect(0, 0, w, h);
@@ -698,29 +718,27 @@ const FX = {
         g.fillStyle = glow; g.beginPath(); g.arc(x, y, 14, 0, 7); g.fill();
       } else if (tt >= 1 && !f.hit) {
         f.hit = true; f.hitAt = t;
-        for (let i = 0; i < 36; i++) { const a = rnd(0, 6.3), v = rnd(60, 220);
-          sparks.push({x: f.tx, y: f.ty, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, r: rnd(1.2, 3.2), life: rnd(.4, .9), max: .9, color: ["#fff2b0", "#ffb347", "#ff6a00"][i % 3]}); }
+        for (let i = 0; i < 40; i++) { const a = rnd(Math.PI, 2 * Math.PI) + rnd(-.3, .3), v = rnd(70, 240);   // debris thrown up and out
+          sparks.push({x: f.tx, y: f.ty, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: rnd(1.2, 3), life: rnd(.4, .9), max: .9, color: ["#fff2b0", "#ffb347", "#ff6a00"][i % 3]}); }
+        f.puffs = Array.from({length: 8}, () => ({dx: rnd(-14, 14), dy: rnd(-12, 4), r: rnd(9, 16), vy: rnd(-34, -14), delay: rnd(0, .08)}));
       }
-      if (f.hit) {
-        const k = (t - f.hitAt) / .6;
-        if (k < 1) { g.strokeStyle = `rgba(255,190,90,${1 - k})`; g.lineWidth = 3; g.beginPath(); g.arc(f.tx, f.ty, 6 + k * 46, 0, 7); g.stroke();
-                     g.fillStyle = `rgba(255,150,40,${.35 * (1 - k)})`; g.fillRect(0, 0, w, h); }
-        g.fillStyle = `rgba(30,15,5,${.45 * envelope(t, .01, .25)})`; g.beginPath(); g.ellipse(f.tx, f.ty + 4, 16, 6, 0, 0, 7); g.fill();
-      }
+      if (f.hit) explosion(g, f, (t - f.hitAt) * FX_MS / 1000, w, h, t);
     });
     drawParts(g, sparks, dt, 320);
   },
   E07(g, w, h, t, s, dt) {                               // hungry dogs: dogs charge in, food flies off
-    g.fillStyle = `rgba(120,60,20,${.2 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
+    g.fillStyle = `rgba(120,60,20,${.12 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
     const dust = particles(s, "d", 0, () => ({}));
+    drawParts(g, dust, dt, 0);                                                          // dust first, so it trails behind the dogs
     // x along the way: dash in from the right, stop at the food, then on out to the left (always facing left)
     const along = t < .4 ? ease(t / .4) * .5 : t < .58 ? .5 : .5 + .5 * Math.pow((t - .58) / .42, 1.6);
     if (t < .5) emoji(g, "🍖", w * .45, h * .58, 20, 0, 1);
-    [0, 1].forEach(i => { const x = (w + 40) - (w + 110) * along + i * 30, y = h * (.42 + i * .2) - (t > .4 && t < .58 ? 0 : Math.abs(Math.sin(t * 40 + i)) * 6);
-      emoji(g, "🐕", x, y, 28, 0);
-      if (i === 0 && t >= .5) emoji(g, "🍖", x - 16, y + 6, 16, -.4);                     // carried off in its mouth
-      if (t < .4 || t > .58) if (Math.random() < .45) dust.push({x: x + 14, y: y + 12, vx: rnd(10, 40), vy: rnd(-15, 0), r: rnd(2, 4), life: .5, max: .5, color: "#b58b5a", a: .6, grow: 1.4}); });
-    drawParts(g, dust, dt, 0);
+    [0, 1].forEach(i => { const x = (w + 40) - (w + 110) * along + i * 34, y = h * (.42 + i * .2) - (t > .4 && t < .58 ? 0 : Math.abs(Math.sin(t * 40 + i)) * 6);
+      g.save(); g.shadowColor = "rgba(0,0,0,.75)"; g.shadowBlur = 6; g.shadowOffsetY = 2;          // a dark halo keeps them readable on any ground
+      emoji(g, "🐕", x, y, 34, 0);
+      if (i === 0 && t >= .5) emoji(g, "🍖", x - 19, y + 7, 18, -.4);                     // carried off in its mouth
+      g.restore();
+      if (t < .4 || t > .58) if (Math.random() < .35) dust.push({x: x + 18, y: y + 14, vx: rnd(10, 40), vy: rnd(-12, 0), r: rnd(1.5, 3), life: .45, max: .45, color: "#b58b5a", a: .35, grow: 1.2}); });
   },
   E08(g, w, h, t, s, dt) {                               // feast: a golden banquet table laid out under falling light
     const k = envelope(t, .12, .2), S = Math.min(w, h);

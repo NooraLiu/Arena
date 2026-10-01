@@ -549,8 +549,8 @@ def build_observation(engine: Engine, seat: int) -> Observation:
     me = engine._p(seat)
     from .map import adjacent as _adjacent
     zones = engine._skill(me).attack_zones(me, _adjacent(me.zone))
-    attackable = [q.seat for q in engine.alive_players()
-                  if q.seat != seat and q.zone in zones]
+    attackable = [q.seat for q in engine.alive_players()     # a downed seat (hp <= 0) can't be hit again:
+                  if q.seat != seat and q.zone in zones and q.hp > 0]   # the kill stays with whoever downed them
     if engine.state.round_no == 1:
         # Round 1 has no fixed spawn: each player freely places their pawn in any open zone.
         moves = sorted(engine.state.open_zones, key=lambda z: z.value)

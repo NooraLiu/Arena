@@ -65,3 +65,18 @@ def test_center_attacker_chooses_the_target():
     asyncio.run(eng.action_phase())
     first = next(e for e in eng.log.events if e.type == "attack")
     assert first.actor == 1 and first.payload["target"] == 2
+
+
+def test_a_downed_seat_cannot_be_attacked_again():
+    from arena.engine import build_observation
+    from arena.models import Zone, Character, PlayerState, GameState
+    from arena.players.base import Player
+    from arena.engine import Engine
+    import random
+    a = PlayerState(0, Character("A", 10, 2), 10, Zone.N)
+    b = PlayerState(1, Character("B", 10, 2), 0, Zone.N)       # downed by a random event, still on the board
+    c = PlayerState(2, Character("C", 10, 2), 5, Zone.N)
+    st = GameState(round_no=4, players=[a, b, c], decks={z: [] for z in Zone}, open_zones=set(Zone), first_seat=0)
+    eng = Engine(state=st, players_by_seat={p.seat: Player() for p in (a, b, c)}, rng=random.Random(0))
+    assert build_observation(eng, 0).attackable_seats == [2]
+    assert 0 in build_observation(eng, 1).attackable_seats     # the downed seat can still hit back

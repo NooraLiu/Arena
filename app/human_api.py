@@ -59,7 +59,7 @@ def post_decision(seat, key, body):
         if not _authorized(eng, seat, key):
             return 403, {"error": "链接不对:座位号或口令不匹配"}
         status = H.human_view(eng, seat)["status"]
-        if status in ("dead", "over") and not eng._p(seat).alive:
+        if status == "dead" or (status == "over" and "reflection" in body):   # an out seat's, or anyone's after the game
             if H._reflection_text(eng, seat):
                 return 409, {"error": "出局感悟已经交过了"}
             errs = H.validate_decision(eng, seat, "reflect", body)

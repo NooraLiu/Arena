@@ -105,7 +105,7 @@ def pull(in_dir):
         if doc_id.startswith("refl-"):
             fp = f"{S.HUMAN_DIR}/reflections/s{seat}.json"
             text = str(d.get("reflection") or "").strip()
-            if text and not eng._p(seat).alive and not os.path.exists(fp) and not H._reflection_text(eng, seat):
+            if text and (not eng._p(seat).alive or eng.phase == "over") and not os.path.exists(fp) and not H._reflection_text(eng, seat):
                 A._write(fp, {"reflection": text[:2000]})
                 reflections.append(seat)
             continue

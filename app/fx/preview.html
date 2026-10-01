@@ -838,6 +838,123 @@ async function playEvent(ev) {
     setTimeout(() => b.remove(), FX_MS + 300);
   });
 }
+
+/* ======================= end-of-game screen ======================= */
+/* finaleHTML(result) -> the whole end screen: the survivor's trophy, who reached their goal, every
+   seat's secret identity turned over, what everyone said afterwards, and how the AIs guessed the humans.
+   Needs from the page: esc(). Its styles are added once, here. */
+const FIN_CSS = `
+.finale{margin:0 0 16px;display:flex;flex-direction:column;gap:14px}
+.fin-hero{position:relative;overflow:hidden;text-align:center;padding:26px 16px 22px;border-radius:18px;
+  background:radial-gradient(ellipse at 50% 0%,rgba(243,201,105,.28),rgba(243,201,105,0) 60%),linear-gradient(180deg,#221a0c,#14121c);
+  border:1px solid #6b5420;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.fin-hero canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.fin-cup{font-size:88px;line-height:1;display:inline-block;filter:drop-shadow(0 0 22px rgba(255,205,90,.75));animation:fincup 3.2s ease-in-out infinite}
+@keyframes fincup{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(3deg)}}
+.fin-kicker{margin-top:6px;font-size:12px;letter-spacing:.3em;color:#f3c969}
+.fin-name{font-size:30px;font-weight:800;color:#fff;margin:4px 0 2px}
+.fin-sub{color:#cbb98a;font-size:13px}
+.fin-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}
+.fin-chip{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(243,201,105,.14);border:1px solid rgba(243,201,105,.45);color:#f6dc9a}
+.fin-chip.id{background:#2b1e48;border-color:#7b5cc4;color:#e3d6ff}
+.fin-sec{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.fin-sec h3{margin:0 0 10px;font-size:15px}
+.fin-goals{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.fin-goal{border:1px solid #6b5420;background:linear-gradient(180deg,#241c0e,#17141d);border-radius:12px;padding:10px 12px}
+.fin-goal b{color:#fff}.fin-goal .w{color:#f3c969;font-size:13px;margin-top:4px}
+.fin-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.fin-card{perspective:900px;min-height:240px}
+.fin-in{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .8s cubic-bezier(.3,.7,.2,1);min-height:240px}
+.fin-card.open .fin-in{transform:rotateY(180deg)}
+.fin-face{position:absolute;inset:0;backface-visibility:hidden;border-radius:12px;border:1px solid var(--line);padding:10px 12px;overflow:auto}
+.fin-front{background:repeating-linear-gradient(135deg,#1b1630 0 8px,#17132a 8px 16px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.fin-front .q{font-size:38px;color:#7b5cc4}
+.fin-back{transform:rotateY(180deg);background:var(--card2)}
+.fin-back.dead{opacity:.92}
+.fin-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.fin-tag{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.fin-tag.h{border-color:#3d8b5a;color:#9fe0b4}
+.fin-idn{font-size:17px;font-weight:800;color:#e3d6ff;margin:6px 0 2px}
+.fin-goaltxt{font-size:12px;color:var(--dim);line-height:1.45}
+.fin-fate{font-size:12.5px;margin-top:8px}
+.fin-fate .won{color:#f3c969;font-weight:700}
+.fin-quotes{display:flex;flex-direction:column;gap:10px}
+.fin-q{border-left:3px solid #7b5cc4;padding:6px 10px;background:var(--card2);border-radius:0 10px 10px 0}
+.fin-q .who{font-size:12px;color:var(--dim);margin-bottom:4px}
+.fin-q .txt{white-space:pre-wrap;font-size:13.5px;line-height:1.55}
+.fin-gs{display:flex;flex-direction:column;gap:8px}
+.fin-g{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.fin-g .who{min-width:110px;font-size:13px}
+.fin-g .c{font-size:11.5px;padding:1px 7px;border-radius:7px;background:#232a40;color:var(--dim)}
+.fin-g .c.hit{background:#1d3b2a;color:#9fe0b4}
+.fin-g .v{margin-left:auto;font-size:12.5px}
+@media (prefers-reduced-motion: reduce){.fin-cup{animation:none}.fin-in{transition:none}}`;
+
+function finaleHTML(r) {
+  const F = r.finale, S = F.seats, by = s => S.find(x => x.seat === +s);
+  const nameOf = s => { const x = by(s); return x ? `s${x.seat} ${esc(x.name)}` : `s${s}`; };
+  const alive = S.filter(x => x.alive), humans = new Set(S.filter(x => x.human).map(x => x.seat));
+  const WIN = {Survivor: "最后的幸存者"};
+  const winTxt = w => WIN[w] || w;
+  let hero;
+  if (alive.length) hero = `<div class="fin-cup">🏆</div><div class="fin-kicker">${alive.length > 1 ? "最后的幸存者们" : "最后的幸存者"}</div>
+      <div class="fin-name">${alive.map(x => esc(x.name)).join(" & ")}</div>
+      <div class="fin-sub">${alive.map(x => `s${x.seat} · ${x.human ? "🧑 人类" : "🤖 AI"} · ${Math.max(0, x.hp)}/${x.hp_max} 血 · 击杀 ${x.kills}`).join("<br>")}</div>
+      <div class="fin-chips">${alive.map(x => `<span class="fin-chip id">🎭 ${esc(x.identity)}</span>` + x.wins.map(w => `<span class="fin-chip">🏅 ${w === x.identity ? "身份目标达成" : esc(winTxt(w))}</span>`).join("")).join("")}</div>`;
+  else hero = `<div class="fin-cup">💀</div><div class="fin-kicker">同归于尽</div><div class="fin-name">无人生还</div>`;
+  hero += `<div class="fin-sub" style="margin-top:10px">${S.length} 人局 · 共 ${F.rounds} 回合</div>`;
+  const goals = S.filter(x => x.wins.some(w => w !== "Survivor"));
+  const fate = x => x.alive ? `<span class="won">存活到最后</span>`
+    : `第 ${x.died_round ?? "?"} 回合出局 · ${x.killer != null ? `被 ${nameOf(x.killer)} 击杀` : "死于事件或缩圈"}`;
+  const cards = S.map(x => `<div class="fin-card" data-seat="${x.seat}"><div class="fin-in">
+      <div class="fin-face fin-front"><div class="q">?</div><b>s${x.seat} ${esc(x.name)}</b><span class="fin-tag ${x.human ? "h" : ""}">${x.human ? "🧑 人类" : "🤖 AI"}</span></div>
+      <div class="fin-face fin-back ${x.alive ? "" : "dead"}">
+        <div class="fin-top"><b>s${x.seat} ${esc(x.name)}</b><span class="fin-tag ${x.human ? "h" : ""}">${x.human ? "🧑 人类" : "🤖 AI"}</span></div>
+        <div class="fin-idn">🎭 ${esc(x.identity)}</div>
+        <div class="fin-goaltxt">${esc(x.goal)}</div>
+        <div class="fin-fate">${fate(x)} · 击杀 ${x.kills}${x.wins.length ? `<br><span class="won">🏅 ${x.wins.map(w => esc(winTxt(w))).join("、")}</span>` : ""}</div>
+        ${x.desc ? `<div class="fin-goaltxt" style="margin-top:6px;opacity:.8">${esc(x.desc)}</div>` : ""}
+      </div></div></div>`).join("");
+  const quotes = S.filter(x => x.reflection).map(x => `<div class="fin-q"><div class="who">${nameOf(x.seat)} · ${esc(x.identity)} · ${x.human ? "🧑 人类" : "🤖 AI"}</div><div class="txt">${esc(x.reflection)}</div></div>`).join("");
+  const gh = Object.entries(F.guess_history || {});
+  let right = 0;
+  const guesses = gh.map(([s, hist]) => {
+    const last = hist[hist.length - 1], ok = last && humans.has(+last[1]); if (ok) right++;
+    return `<div class="fin-g"><span class="who">🤖 ${nameOf(s)}</span>${hist.map(([rd, t]) => `<span class="c ${humans.has(+t) ? "hit" : ""}" title="第 ${rd} 回合">R${rd}→s${t}</span>`).join("")}
+      <span class="v">最后猜 ${last ? nameOf(last[1]) : "—"} ${ok ? "✅" : "❌"}</span></div>`;
+  }).join("");
+  return `<div class="fin-hero"><canvas></canvas>${hero}</div>
+    ${goals.length ? `<div class="fin-sec"><h3>🎯 达成目标</h3><div class="fin-goals">${goals.map(x => `<div class="fin-goal"><b>${nameOf(x.seat)}</b> · ${esc(x.identity)}<div class="w">🏅 ${x.wins.filter(w => w !== "Survivor").map(w => esc(winTxt(w))).join("、")}</div><div class="fin-goaltxt" style="margin-top:4px">${esc(x.goal)}</div></div>`).join("")}</div></div>`
+      : `<div class="fin-sec"><h3>🎯 达成目标</h3><div class="k">这一局没有人完成秘密身份的目标。</div></div>`}
+    <div class="fin-sec"><h3>🎭 身份揭晓 <span class="k" style="font-weight:400">· 点卡片翻面</span></h3><div class="fin-cards">${cards}</div></div>
+    <div class="fin-sec"><h3>💬 赛后感想</h3>${quotes ? `<div class="fin-quotes">${quotes}</div>` : `<div class="k">还没有人写感想。</div>`}</div>
+    ${gh.length ? `<div class="fin-sec"><h3>🕵️ AI 猜谁是人类</h3><div class="k" style="margin-bottom:8px">真正的人类:${[...humans].map(nameOf).join("、")} · 绿色 = 猜中人类 · ${right}/${gh.length} 个 AI 最后猜对</div><div class="fin-gs">${guesses}</div></div>` : ""}`;
+}
+
+let FIN_KEY = null;
+function showFinale(el, r, key) {
+  if (!document.getElementById("fin-css")) { const st = document.createElement("style"); st.id = "fin-css"; st.textContent = FIN_CSS; document.head.appendChild(st); }
+  const sig = key + ":" + JSON.stringify(r.finale.seats.map(x => x.reflection || ""));
+  if (sig === FIN_KEY) return;                         // the screen is already up: don't replay it on every poll
+  const first = !FIN_KEY || !FIN_KEY.startsWith(key + ":");
+  FIN_KEY = sig;
+  const opened = new Set([...el.querySelectorAll(".fin-card.open")].map(c => c.dataset.seat));
+  el.innerHTML = finaleHTML(r); el.hidden = false;
+  const cards = [...el.querySelectorAll(".fin-card")];
+  cards.forEach(c => c.onclick = () => c.classList.toggle("open"));
+  if (!first || REDUCED()) { cards.forEach(c => { if (!first ? opened.has(c.dataset.seat) : true) c.classList.add("open"); }); return; }
+  cards.forEach((c, i) => setTimeout(() => c.classList.add("open"), 900 + i * 260));   // turned over one by one
+  const cv = el.querySelector(".fin-hero canvas"), box = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = box.width * dpr; cv.height = box.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const W = box.width, H = box.height, cols = ["#f3c969", "#ffe7a3", "#ff7a59", "#7b5cc4", "#6ea8fe", "#9fe0b4"];
+  const bits = Array.from({length: 120}, () => ({x: W / 2 + rnd(-30, 30), y: H * .35, vx: rnd(-260, 260), vy: rnd(-420, -120), r: rnd(3, 6), rot: rnd(0, 6), vr: rnd(-8, 8), c: cols[Math.floor(Math.random() * cols.length)]}));
+  const t0 = performance.now(); let last = t0;
+  const loop = now => { const dt = Math.min(.05, (now - last) / 1000), e = (now - t0) / 1000; last = now; g.clearRect(0, 0, W, H);
+    bits.forEach(b => { b.vy += 520 * dt; b.vx *= .99; b.x += b.vx * dt; b.y += b.vy * dt; b.rot += b.vr * dt;
+      g.save(); g.globalAlpha = Math.max(0, 1 - e / 3.2); g.translate(b.x, b.y); g.rotate(b.rot); g.fillStyle = b.c; g.fillRect(-b.r, -b.r * .4, b.r * 2, b.r * .8); g.restore(); });
+    if (e < 3.3) requestAnimationFrame(loop); else g.clearRect(0, 0, W, H); };
+  requestAnimationFrame(loop);
+}
 /* ==== end arena_fx.js ==== */
 
 /* demo: dice */

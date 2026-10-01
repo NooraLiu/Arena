@@ -252,10 +252,29 @@ def human_view(eng, seat):
         view["result"] = {"identities": {str(q.seat): q.identity for q in st.players},
                           "winners": {str(s): t for s, t in wins.items() if t},
                           "humans": sorted(getattr(eng, "humans", {})),
-                          "human_guesses": {str(s): g[-1][1] for s, g in getattr(eng, "human_guesses", {}).items() if g}}
+                          "human_guesses": {str(s): g[-1][1] for s, g in getattr(eng, "human_guesses", {}).items() if g},
+                          "finale": _finale(eng, wins)}
         text = _reflection_text(eng, seat)
-        view["reflection"] = {"open": not p.alive and not text, "text": text}
+        view["reflection"] = {"open": not text, "text": text}     # after the game everyone may say a word
     return view
+
+
+def _finale(eng, wins):
+    """Everything the end screen shows, once the game is over and nothing is secret any more:
+    each seat's character, identity and goal, how it ended for them, and what they said after."""
+    from play.briefing import fill_for
+    died = {s: r for r, seats in getattr(eng, "deaths_by_round", []) for s in seats}
+    humans = set(getattr(eng, "humans", {}))
+    seats = []
+    for q in eng.state.players:
+        seats.append({"seat": q.seat, "name": q.character.name, "desc": _descriptions().get(q.character.name, ""),
+                      "identity": q.identity, "goal": fill_for(eng, q.seat, S.WIN_COND.get(q.identity, "")),
+                      "alive": q.alive, "hp": q.hp, "hp_max": q.character.hp_max,
+                      "died_round": died.get(q.seat), "killer": eng.killer_of.get(q.seat),
+                      "kills": eng.kills.get(q.seat, 0), "human": q.seat in humans,
+                      "wins": wins.get(q.seat, []), "reflection": _reflection_text(eng, q.seat)})
+    return {"rounds": eng.state.round_no - 1, "seats": seats,
+            "guess_history": {str(s): [[r, t] for r, t in g] for s, g in getattr(eng, "human_guesses", {}).items()}}
 
 
 def _check_say(say, opts, errs):

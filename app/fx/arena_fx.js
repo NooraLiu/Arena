@@ -266,7 +266,9 @@ const Dice3D = (() => {
             const ang = 2 * Math.acos(Math.min(1, delta.w)), sn = Math.sqrt(Math.max(0, 1 - delta.w * delta.w));
             const axis = sn > 1e-4 ? new T.Vector3(delta.x / sn, delta.y / sn, delta.z / sn) : new T.Vector3(1, .4, .2).normalize();
             const tumble = new T.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize();
+            const cross = new T.Vector3().crossVectors(axis, tumble).normalize();      // across the main axis
             return {qEnd, axis, total: ang + Math.PI * 2 * (3 + i), tumble, tAmp: 1.1 + Math.random() * .6,
+                    cross, turns2: Math.PI * 2 * (Math.random() < .5 ? 2 : -2),
                     rock: new T.Vector3(1, (Math.random() - .5) * .6, 0).normalize(), y0: d.mesh.position.y - d.home.y};
           });
           let revealed = false;
@@ -274,10 +276,12 @@ const Dice3D = (() => {
             if (dead) return done();
             const e = now - t0, t = Math.min(1, e / D);
             const g = Math.pow(1 - t, 3) * (1 + 3 * t);                     // 1 -> 0, still at both ends
+            const g2 = Math.pow(1 - t, 2) * (1 + 2 * t);                    // the cross spin winds down on a different curve
             dice.forEach((d, i) => {
               const p = plan[i];
               const q = p.qEnd.clone()
                 .multiply(new T.Quaternion().setFromAxisAngle(p.axis, p.total * g))
+                .multiply(new T.Quaternion().setFromAxisAngle(p.cross, p.turns2 * g2))   // whole turns: same pose at both ends
                 .multiply(new T.Quaternion().setFromAxisAngle(p.tumble, p.tAmp * Math.pow(Math.sin(Math.PI * t), 2) * (1 - t)));
               const u = Math.max(0, (t - .8) / .2);                           // the landing rock
               q.premultiply(new T.Quaternion().setFromAxisAngle(p.rock, .14 * Math.exp(-4 * u) * Math.sin(3 * Math.PI * u) * (1 - u)));
@@ -463,7 +467,7 @@ const FX = {
     emoji(g, "⚔️", grabbed ? mx + 14 : w * .5, grabbed ? my + 24 : h * .62, 24, grabbed ? t * 8 : 0, out);
     g.restore();
   },
-  E04(g, w, h, t, s, dt) {                               // sandstorm: fog bands and hundreds of streaking grains
+  E04(g, w, h, t, s, dt) {                               // sandstorm: fog bands and hundreds of streaking grains, nothing else
     const k = envelope(t, .15, .25);
     for (let i = 0; i < 3; i++) { g.fillStyle = `rgba(201,162,107,${.22 * k})`; g.beginPath();
       for (let x = 0; x <= w; x += 6) g.lineTo(x, h * (.25 + i * .25) + Math.sin(x / 25 + t * 10 + i) * 10);
@@ -472,8 +476,6 @@ const FX = {
     g.strokeStyle = `rgba(245,215,160,${.8 * k})`; g.lineWidth = 1.3;
     sand.forEach(p => { p.x += p.v * dt; if (p.x > w + 20) p.x = rnd(-60, -10); const y = p.y + Math.sin(p.x / 30 + t * 6) * 6;
       g.beginPath(); g.moveTo(p.x, y); g.lineTo(p.x - p.len, y + 1.5); g.stroke(); });
-    emoji(g, "🌪️", w * .5 + Math.sin(t * 12) * 10, h * .45, 34, Math.sin(t * 30) * .15, k);
-    if (t > .35) emoji(g, "🔒", w * .5, h * .78, 18, 0, k);
   },
   E05(g, w, h, t, s, dt) {                               // peace: soft light rays, drifting petals, a dove
     const k = envelope(t, .2, .3);

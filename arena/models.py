@@ -147,5 +147,6 @@ class GameState:
     bombs: List["Bomb"] = field(default_factory=list)
     events: List["RandomEvent"] = field(default_factory=list)   # remaining random-event deck
     frozen_zones: Set["Zone"] = field(default_factory=set)      # can't move OUT this round (sandstorm)
+    frozen_next: Set["Zone"] = field(default_factory=set)       # a sandstorm this round: locked next round
     feast_next: bool = False                                     # the Feast telegraphed this round
     feast_active: bool = False                                   # center draws +2 THIS round (Feast in effect)

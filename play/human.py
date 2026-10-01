@@ -221,7 +221,9 @@ def human_view(eng, seat):
     events = [line for line in (S._event_line(e) for e in eng.log.events) if line][-30:]
     random_events = [{"round": e.round_no, "id": e.payload.get("id"), "name": e.payload.get("name"),
                       "zones": [S.NAME_BY_ZONE[S.ZONE_BY_NAME[z]] for z in (e.payload.get("zones") or [e.payload.get("zone")])],
-                      "hits": e.payload.get("hits", [])}
+                      "hits": e.payload.get("hits", []),
+                      "roll": e.payload.get("roll", 0), "faces": e.payload.get("faces", 0),
+                      "zone_order": [S.NAME_BY_ZONE[S.ZONE_BY_NAME[z]] for z in e.payload.get("zone_order", [])]}
                      for e in eng.log.events if e.type == "random_event"][-3:]
     view = {"seat": seat, "round": st.round_no, "phase": ph, "status": status,
             "mode": getattr(eng, "mode", "simultaneous"),
@@ -230,7 +232,7 @@ def human_view(eng, seat):
             "open_zones": _names(st.open_zones),
             "deck_left": {S.NAME_BY_ZONE[z]: len(st.decks.get(z, [])) for z in st.open_zones},
             "feast_active": st.feast_active, "feast_next": st.feast_next,
-            "frozen": _names(st.frozen_zones),
+            "frozen": _names(st.frozen_zones), "frozen_next": _names(getattr(st, "frozen_next", set())),
             "players": players, "me": me, "messages": messages, "events": events,
             "random_events": random_events,
             "event_rounds": list(config.EVENT_ROUNDS),

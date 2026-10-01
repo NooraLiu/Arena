@@ -65,11 +65,38 @@ def test_ape_steals_the_equipped_weapon():
     assert p.equipped_weapon is None
 
 
-def test_sandstorm_freezes_the_zone():
+def test_sandstorm_locks_the_zone_next_round():
     p = PlayerState(0, Character("A", 10, 2), 10, Zone.S)
     eng = _engine([p])
     eng.apply_random_event(_ev("E04"), Zone.S)
-    assert Zone.S in eng.state.frozen_zones
+    assert Zone.S not in eng.state.frozen_zones and Zone.S in eng.state.frozen_next
+    eng.start_round()
+    assert Zone.S in eng.state.frozen_zones and not eng.state.frozen_next
+
+
+def test_event_fires_after_everyone_has_picked_a_zone():
+    import asyncio
+    from arena.models import Move
+
+    class GoNorth(Player):
+        async def decide_move(self, obs): return Move(Zone.N)
+        async def decide_action(self, obs): return Draw()
+
+    p = PlayerState(0, Character("A", 10, 2), 10, Zone.CENTER)
+    eng = _engine([p], rng=FixedRNG(1))                        # d4 = 1 -> forest (N)
+    eng.players_by_seat = {0: GoNorth()}
+    eng.state.events = [_ev("E01")]
+    asyncio.run(eng.play_round())
+    assert p.zone == Zone.N and p.hp == 10 - config.EVENT_WOLF_DAMAGE   # the wolves found them where they went
+    ev = [e for e in eng.log.events if e.type == "random_event"][0]
+    assert ev.payload["roll"] == 1 and ev.payload["faces"] == 4 and ev.payload["zone_order"][0] == Zone.N.value
+
+
+def test_hungry_dogs_keep_the_food():
+    p = PlayerState(0, Character("A", 10, 2), 10, Zone.N, hand=[_c("面包", "FOOD", 2), _c("苹果", "FOOD", 2)])
+    eng = _engine([p])
+    eng.apply_random_event(_ev("E07"), Zone.N)
+    assert p.hand == [] and all(c.type != CardType.FOOD for d in eng.state.decks.values() for c in d)
 
 
 def test_hungry_dogs_take_two_food_else_damage():

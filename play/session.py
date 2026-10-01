@@ -196,8 +196,8 @@ def cmd_event(args):
         return
     ev, zone = fired
     print(f"⚡ 随机事件 {ev.id} 「{ev.name}」→ {NAME_BY_ZONE[zone]} 区。效果: {ev.effect}")
-    if eng.state.frozen_zones:
-        print(f"  沙尘暴锁定区域(本轮不能移动): {[NAME_BY_ZONE[z] for z in eng.state.frozen_zones]}")
+    if getattr(eng.state, "frozen_next", None):
+        print(f"  沙尘暴锁定区域(下回合不能离开): {[NAME_BY_ZONE[z] for z in eng.state.frozen_next]}")
     if eng.state.feast_next:
         print("  盛宴预告:下回合待在中心区的人多抽 2 张牌(中心没牌了就改为回 3 血)。")
     print("  当前血量: " + ", ".join(f"{p.character.name}={p.hp}" for p in eng.alive_players()))
@@ -666,7 +666,8 @@ def _prompt(eng, seat, phase):
         eqq = f"{q.equipped_weapon.name}+{q.equipped_weapon.value}" if q.equipped_weapon else "无"
         L.append(f"  s{q.seat} {q.character.name}: {q.hp}/{q.character.hp_max}血 · {zq} · 武器 {eqq}")
     L.append(f"开放区: {', '.join(sorted(NAME_BY_ZONE[z] for z in st.open_zones))}"
-             + (f" · 沙尘暴锁定: {[NAME_BY_ZONE[z] for z in st.frozen_zones]}" if st.frozen_zones else "")
+             + (f" · 沙尘暴锁定(本回合不能离开): {[NAME_BY_ZONE[z] for z in st.frozen_zones]}" if st.frozen_zones else "")
+             + (f" · 沙尘暴(下回合不能离开): {[NAME_BY_ZONE[z] for z in st.frozen_next]}" if getattr(st, "frozen_next", None) else "")
              + (" · 盛宴生效中(中心区多抽2张;中心没牌了就改为回 3 血)" if st.feast_active else "")
              + (" · 盛宴预告:下回合中心区多抽2张(中心没牌了就改为回 3 血)" if st.feast_next else ""))
     left = {z: len(st.decks.get(z, [])) for z in sorted(st.open_zones, key=lambda z: z.value)}
@@ -969,14 +970,12 @@ def cmd_prompt(args):
 
 
 def cmd_startround(args):
-    """Round start: activate a telegraphed Feast, clear sandstorm, maybe fire a random event."""
+    """Round start: activate a telegraphed Feast and last round's sandstorm lock.
+    (A random event fires later, once everyone has picked a zone: see cmd_movephase.)"""
     eng = _load()
     _absorb_reflections(eng)
-    st = eng.state
-    st.feast_active, st.feast_next = st.feast_next, False
-    st.frozen_zones = set()
+    eng.start_round()
     _save(eng)
-    cmd_event(args)
 
 
 def _load_decisions(args):
@@ -1030,6 +1029,10 @@ def cmd_movephase(args):
         eng.log.record(_Ev("move", st.round_no, p.seat, "public", {"to": dest.value}))
     _planned(eng).clear()
     eng.rejected_moves = {}
+    _save(eng)
+    cmd_event(args)                                   # random event: right after everyone has picked a zone
+    eng = _load()
+    st = eng.state
     before = {p.seat: p.hp for p in st.players}
     eng._detonate_bombs()
     _save(eng)

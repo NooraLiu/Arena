@@ -150,6 +150,13 @@
     background:rgba(8,10,20,.9);color:#fff;font-size:13px;padding:6px 14px;border-radius:999px;border:1px solid var(--win);
     box-shadow:0 6px 20px rgba(0,0,0,.45)}
   .fxbanner span{color:var(--dim);font-size:12px}
+  .evroll{position:absolute;left:50%;top:55%;z-index:3;transform:translate(-50%,-50%);width:250px;pointer-events:none}
+  .evroll .tray{height:190px;margin:0;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+  .evkey{display:flex;justify-content:center;gap:6px;margin-top:6px}
+  .evkey span{font-size:12px;color:#d8dcef;background:rgba(8,10,20,.88);border:1px solid #2a3150;border-radius:999px;padding:2px 9px;transition:.2s}
+  .evkey span b{color:#f3c969}
+  .evkey span.on{background:#f3c969;color:#1a1206;border-color:#f3c969;font-weight:700;transform:scale(1.12)}
+  .evkey span.on b{color:#1a1206}
   .replay{font:inherit;font-size:11.5px;color:var(--dim);background:none;border:1px dashed var(--line);border-radius:8px;padding:1px 8px;cursor:pointer;margin-left:6px}
 </style>
 <header>
@@ -562,7 +569,7 @@ const Dice3D = (() => {
 /* ======================= random events ======================= */
 
 const FX_MS = 3200;
-const FX_LABEL = {E01: "🐺 变异狼群 -4", E02: "🌊 洪水:手中武器冲回牌堆", E03: "🐒 猴群:抢走已装备武器", E04: "🌪️ 沙尘暴:本回合不能移动",
+const FX_LABEL = {E01: "🐺 变异狼群 -4", E02: "🌊 洪水:手中武器冲回牌堆", E03: "🐒 猴群:抢走已装备武器", E04: "🌪️ 沙尘暴:下回合不能离开",
                   E05: "🕊️ 和平日:无事发生", E06: "☄️ 火球 -3", E07: "🐕 饿狗:交 2 食物或 -3", E08: "🍗 盛宴预告:下回合在中心多抽 2 张手牌(中心没牌了就 health +3)"};
 const FX_DAMAGE = {E01: 4, E06: 3};
 
@@ -577,6 +584,7 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const ease = t => 1 - Math.pow(1 - t, 3);
 function emoji(g, ch, x, y, size, rot, alpha, flip) {   // flip: mirror it (animal emoji face left)
   g.save(); g.globalAlpha = alpha ?? 1; g.translate(x, y); if (rot) g.rotate(rot); if (flip) g.scale(-1, 1);
+  g.fillStyle = "#000";              // color emoji take the fill's alpha: a leftover translucent tint would fade them
   g.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
   g.fillText(ch, 0, 0); g.restore();
 }
@@ -607,11 +615,11 @@ function clawMarks(g, w, h, t, s) {
       const width = S * .045 * Math.pow(Math.sin(Math.PI * (i / N)), .7) * c.jag[i];
       L.push([x - dy / dl * width, y + dx / dl * width]); R.push([x + dy / dl * width * .6, y - dx / dl * width * .6]);
     }
+    { const a = L[L.length - 1], b = R[R.length - 1], pa = L[Math.max(0, L.length - 3)];   // where this gash's claw is now
+      c.head = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.atan2(a[1] - pa[1], a[0] - pa[0])]; }
     const poly = (pts, scale) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); };
     g.save(); g.globalAlpha = fade;
-    g.shadowColor = "rgba(255,40,40,.8)"; g.shadowBlur = 10;
     poly(L.concat(R.reverse())); g.closePath(); g.fillStyle = "#7a0710"; g.fill();       // raw red rim
-    g.shadowBlur = 0;
     const inner = L.map((pt, i) => { const r = R[R.length - 1 - i]; return [(pt[0] * 2 + r[0]) / 3, (pt[1] * 2 + r[1]) / 3]; });
     poly(inner.concat(R.slice().reverse().map((pt, i) => { const l = L[i]; return [(pt[0] * 2 + l[0]) / 3, (pt[1] * 2 + l[1]) / 3]; }).reverse()));
     g.closePath(); g.fillStyle = "#2a0004"; g.fill();                                     // the deep wound
@@ -621,11 +629,16 @@ function clawMarks(g, w, h, t, s) {
       g.beginPath(); g.moveTo(x - 1.2, y); g.lineTo(x + 1.2, y); g.lineTo(x + .8, y + d.len); g.arc(x, y + d.len, 1.8, 0, Math.PI); g.lineTo(x - .8, y + d.len); g.fill(); });
     g.restore();
   });
-  if (swipe < 1) {                                                                     // the bright edge of the swipe itself
-    const x = w * (.2 + .6 * swipe), y = h * (.12 + .76 * swipe);
-    const grd = g.createRadialGradient(x, y, 0, x, y, 22); grd.addColorStop(0, "rgba(255,240,230,.9)"); grd.addColorStop(1, "rgba(255,80,80,0)");
-    g.fillStyle = grd; g.beginPath(); g.arc(x, y, 22, 0, 7); g.fill();
-  }
+  // the claws that make them: three hooked talons, one at the head of each gash, gone as the swipe ends
+  const cf = swipe < 1 ? 1 : Math.max(0, 1 - (t - .16) / .06);
+  if (cf > 0) s.claw.forEach((c, ci) => { if (!c.head) return;
+    const [x, y, ang] = c.head, len = S * .2;
+    g.save(); g.globalAlpha = cf; g.translate(x, y); g.rotate(ang);
+    g.shadowColor = "rgba(0,0,0,.7)"; g.shadowBlur = 5;
+    const tg = g.createLinearGradient(-len, 0, 0, 0); tg.addColorStop(0, "#3a3229"); tg.addColorStop(.6, "#d9d2c3"); tg.addColorStop(1, "#fffaf0");
+    g.fillStyle = tg; g.beginPath();                                                    // a curved talon, thick at the root, needle tip
+    g.moveTo(-len, -S * .035); g.quadraticCurveTo(-len * .35, -S * .04, 0, 0); g.quadraticCurveTo(-len * .4, S * .005, -len, S * .03); g.closePath(); g.fill();
+    g.restore(); });
 }
 
 /* A fiery blast where a fireball lands: a white flash, rolling fire puffs that swell and cool from
@@ -650,7 +663,7 @@ function explosion(g, f, e, w, h, t) {
 
 const FX = {
   E01(g, w, h, t, s, dt) {                               // wolves: claw slashes, then the pack bounds through
-    g.fillStyle = `rgba(120,10,10,${.3 * envelope(t, .08, .35)})`; g.fillRect(0, 0, w, h);
+    g.fillStyle = `rgba(60,10,10,${.18 * envelope(t, .08, .35)})`; g.fillRect(0, 0, w, h);
     clawMarks(g, w, h, t, s);
     const dust = particles(s, "dust", 0, () => ({}));
     [0, 1, 2].forEach(i => { const tt = (t - .18 - i * .1) / .55; if (tt < 0 || tt > 1) return;
@@ -671,16 +684,19 @@ const FX = {
     if (t > .3 && t < .8) emoji(g, "⚔️", w * .5, h - level + 6 + Math.sin(t * 20) * 3, 22, Math.sin(t * 9) * .4, envelope((t - .3) / .5, .2, .3));
   },
   E03(g, w, h, t, s) {                                   // monkeys: swing in on a vine, snatch the weapon, swing out
-    g.fillStyle = `rgba(90,70,30,${.25 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
+    g.fillStyle = `rgba(90,70,30,${.12 * envelope(t, .1, .3)})`; g.fillRect(0, 0, w, h);
     const ang = -1.2 + 2.4 * ease(Math.min(1, t / .9)), L = h * .85, ax = w * .5, ay = -h * .1;
     const mx = ax + Math.sin(ang) * L, my = ay + Math.cos(ang) * L;
-    g.strokeStyle = "rgba(70,120,40,.9)"; g.lineWidth = 3; g.beginPath(); g.moveTo(ax, ay);
-    g.quadraticCurveTo(ax + Math.sin(ang) * L * .5 + 6, ay + Math.cos(ang) * L * .5, mx, my); g.stroke();
-    emoji(g, "🐒", mx, my + 8, 30, -ang * .4, 1, true);
-    const grabbed = ang > -.05;
-    emoji(g, "⚔️", grabbed ? mx + 12 : w * .5, grabbed ? my + 20 : h * .62, 22, grabbed ? t * 8 : 0);
     const leaves = particles(s, "l", 10, () => ({x: rnd(0, w), y: rnd(-h, 0), vy: rnd(20, 45), sway: rnd(0, 6)}));
-    leaves.forEach(p => { p.y += p.vy / 60; emoji(g, "🍃", p.x + Math.sin(p.y / 12 + p.sway) * 8, p.y, 12, p.y / 20, .8); });
+    leaves.forEach(p => { p.y += p.vy / 60; emoji(g, "🍃", p.x + Math.sin(p.y / 12 + p.sway) * 8, p.y, 12, p.y / 20, .7); });   // behind the monkey
+    const vine = (col, lw) => { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(ax, ay);
+      g.quadraticCurveTo(ax + Math.sin(ang) * L * .5 + 6, ay + Math.cos(ang) * L * .5, mx, my); g.stroke(); };
+    vine("#1e3010", 6); vine("#5f9a34", 3.5);
+    const grabbed = ang > -.05;
+    g.save(); g.shadowColor = "rgba(0,0,0,.75)"; g.shadowBlur = 6; g.shadowOffsetY = 2;
+    emoji(g, "🐒", mx, my + 8, 38, -ang * .4, 1, true);
+    emoji(g, "⚔️", grabbed ? mx + 14 : w * .5, grabbed ? my + 24 : h * .62, 24, grabbed ? t * 8 : 0);
+    g.restore();
   },
   E04(g, w, h, t, s, dt) {                               // sandstorm: fog bands and hundreds of streaking grains
     const k = envelope(t, .15, .25);
@@ -732,13 +748,18 @@ const FX = {
     drawParts(g, dust, dt, 0);                                                          // dust first, so it trails behind the dogs
     // x along the way: dash in from the right, stop at the food, then on out to the left (always facing left)
     const along = t < .4 ? ease(t / .4) * .5 : t < .58 ? .5 : .5 + .5 * Math.pow((t - .58) / .42, 1.6);
-    if (t < .5) emoji(g, "🍖", w * .45, h * .58, 20, 0, 1);
-    [0, 1].forEach(i => { const x = (w + 40) - (w + 110) * along + i * 34, y = h * (.42 + i * .2) - (t > .4 && t < .58 ? 0 : Math.abs(Math.sin(t * 40 + i)) * 6);
-      g.save(); g.shadowColor = "rgba(0,0,0,.75)"; g.shadowBlur = 6; g.shadowOffsetY = 2;          // a dark halo keeps them readable on any ground
+    const run = Math.min(1, Math.max(0, (.4 - t) / .05, (t - .58) / .05));               // bounce fades out at the stop and back in
+    const stopX = (w + 40) - (w + 110) * .5, mouth = [stopX - 19, h * .42 + 7], ground = [stopX - 21, h * .42 + 20];
+    const lift = Math.min(1, Math.max(0, (t - .44) / .08)), lk = ease(lift);              // head down, meat comes up into the mouth
+    g.save(); g.shadowColor = "rgba(0,0,0,.75)"; g.shadowBlur = 6; g.shadowOffsetY = 2;            // a dark halo keeps them readable on any ground
+    [0, 1].forEach(i => { const x = (w + 40) - (w + 110) * along + i * 34, y = h * (.42 + i * .2) - run * Math.abs(Math.sin(t * 40 + i)) * 6;
       emoji(g, "🐕", x, y, 34, 0);
-      if (i === 0 && t >= .5) emoji(g, "🍖", x - 19, y + 7, 18, -.4);                     // carried off in its mouth
-      g.restore();
-      if (t < .4 || t > .58) if (Math.random() < .35) dust.push({x: x + 18, y: y + 14, vx: rnd(10, 40), vy: rnd(-12, 0), r: rnd(1.5, 3), life: .45, max: .45, color: "#b58b5a", a: .35, grow: 1.2}); });
+      if (i === 0) {
+        if (lift <= 0) emoji(g, "🍖", ground[0], ground[1], 18, 0);
+        else emoji(g, "🍖", x - stopX + ground[0] + (mouth[0] - ground[0]) * lk, y - h * .42 + ground[1] + (mouth[1] - ground[1]) * lk, 18, -.4 * lk);   // carried off in its mouth
+      }
+      if (run > .5 && Math.random() < .35) dust.push({x: x + 18, y: y + 14, vx: rnd(10, 40), vy: rnd(-12, 0), r: rnd(1.5, 3), life: .45, max: .45, color: "#b58b5a", a: .35, grow: 1.2}); });
+    g.restore();
   },
   E08(g, w, h, t, s, dt) {                               // feast: a golden banquet table laid out under falling light
     const k = envelope(t, .12, .2), S = Math.min(w, h);
@@ -751,7 +772,7 @@ const FX = {
       g.fillStyle = sh; g.beginPath(); g.moveTo(x - 6, 0); g.lineTo(x + 6, 0); g.lineTo(x + 22, h); g.lineTo(x - 22, h); g.fill(); }
     g.restore();
     // the table: a cloth-covered top in perspective, gold trim, legs
-    const rise = ease(Math.min(1, t / .25)), ty = h * .5 + (1 - rise) * 20;
+    const rise = ease(Math.min(1, t / .25)), ty = h * .46 + (1 - rise) * 20;
     const tl = w * .16, tr = w * .84, bl = w * .06, br = w * .94, top = ty, bot = ty + S * .22;
     g.globalAlpha = k;
     g.fillStyle = "#3b2414"; [[bl + 10, bot], [br - 16, bot]].forEach(([x, y]) => g.fillRect(x, y, 6, h - y));
@@ -759,15 +780,18 @@ const FX = {
     g.fillStyle = cloth; g.beginPath(); g.moveTo(tl, top); g.lineTo(tr, top); g.lineTo(br, bot); g.lineTo(bl, bot); g.closePath(); g.fill();
     g.fillStyle = "#d9a83e"; g.beginPath(); g.moveTo(bl, bot); g.lineTo(br, bot); g.lineTo(br - 4, bot + 8); g.lineTo(bl + 4, bot + 8); g.fill();   // gold hem
     g.strokeStyle = "rgba(160,110,20,.7)"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(tl, top); g.lineTo(tr, top); g.stroke();
-    // gold plates, then the food lands on them one by one
-    const dishes = ["🍗", "🥩", "🍉", "🍎", "🍖"];
-    dishes.forEach((ch, i) => {
-      const u = (i + .5) / dishes.length, x = bl + (br - bl) * u * .9 + (br - bl) * .05, y = top + (bot - top) * .55;
-      const pg = g.createRadialGradient(x - 3, y - 2, 1, x, y, S * .07); pg.addColorStop(0, "#fff1b0"); pg.addColorStop(.6, "#e0ac3c"); pg.addColorStop(1, "#8a5d12");
-      g.fillStyle = pg; g.beginPath(); g.ellipse(x, y, S * .075, S * .03, 0, 0, 7); g.fill();
-      const land = (t - .18 - i * .07) / .2; if (land < 0) return;
-      const dropY = y - 6 - (1 - ease(Math.min(1, land))) * S * .5, bounce = land > 1 && land < 1.4 ? Math.sin((land - 1) / .4 * Math.PI) * 3 : 0;
-      emoji(g, ch, x, dropY - bounce, S * .13, 0, k);
+    // a heaped spread, there as the table rises: a big roast in the middle, platters either side,
+    // fruit and bread in front; each gets a gold platter and a slow shimmer
+    const span = br - bl, plate = (x, y, rx) => {
+      const pg = g.createRadialGradient(x - rx * .3, y - 2, 1, x, y, rx); pg.addColorStop(0, "#fff1b0"); pg.addColorStop(.6, "#e0ac3c"); pg.addColorStop(1, "#8a5d12");
+      g.fillStyle = pg; g.beginPath(); g.ellipse(x, y, rx, rx * .36, 0, 0, 7); g.fill(); };
+    const spread = [["🍖", .18, .05, .3], ["🍗", .82, .05, .3], ["🍷", .33, -.05, .22], ["🍷", .67, -.05, .22],
+                    ["🍉", .3, .55, .28], ["🍞", .5, .62, .26], ["🍇", .7, .55, .26], ["🍗", .5, .1, .44]];      // [dish, across, depth, size]
+    spread.forEach(([ch, u, d, sz], i) => {
+      const x = bl + span * u, y = top + (bot - top) * (.35 + d * .6), size = S * sz;
+      if (ch !== "🍷") plate(x, y + size * .28, size * .55);
+      const bob = Math.sin(t * 6 + i) * 1.2;
+      emoji(g, ch, x, y - size * .12 + bob, size, 0, k);
     });
     // candles with flickering flames
     [.32, .68].forEach((u, ci) => { const x = tl + (tr - tl) * u, y = top - 2;
@@ -802,7 +826,42 @@ function floatDamage(layer, zoneEl, seats, amount) {
 }
 
 const FX_ZONE = {center: "中心", forest: "林区", water: "水区", stone: "石区", city: "城区"};
-function playEvent(ev) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* Before the event lands: a die thrown over the map picks the zone (1 = the first outer zone still
+   open, and so on), and the picked zone lights up. Skipped for events that pick their own zones. */
+async function rollEventZone(ev) {
+  const layer = $("fx"), order = ev.zone_order || [];
+  if (!layer || !(ev.faces >= 2) || !ev.roll || ev.id === "E06" || ev.id === "E08") return;
+  const box = document.createElement("div"); box.className = "evroll";
+  box.innerHTML = `<div class="tray"><span class="tray-cap">🎲 随机事件 · 掷 ${Dice3D.name(ev.faces)} 定区域</span></div>
+    <div class="evkey">${order.map((z, i) => `<span data-i="${i + 1}"><b>${i + 1}</b> ${FX_ZONE[z] || z}</span>`).join("")}</div>`;
+  layer.appendChild(box);
+  box.animate([{opacity: 0, transform: "translate(-50%,-50%) scale(.9)"}, {opacity: 1, transform: "translate(-50%,-50%) scale(1)"}], {duration: 220, fill: "both"});
+  await sleep(250);
+  await Dice3D.roll(box.querySelector(".tray"), ev.faces, 1, [ev.roll]);
+  const hit = box.querySelector(`[data-i="${ev.roll}"]`); if (hit) hit.classList.add("on");
+  const zEl = document.querySelector(`#map .zone.${ZC[order[ev.roll - 1]]}`);
+  if (zEl) zEl.animate([{boxShadow: "0 0 0 0 rgba(243,201,105,0)"}, {boxShadow: "0 0 0 4px rgba(243,201,105,.95), 0 0 24px rgba(243,201,105,.6)", offset: .3},
+                        {boxShadow: "0 0 0 0 rgba(243,201,105,0)"}], {duration: 1000});
+  await sleep(900);
+  await box.animate([{opacity: 1}, {opacity: 0}], {duration: 250, fill: "both"}).finished;
+  Dice3D.release(); box.remove();
+}
+
+/* Events that happened this round and this browser hasn't shown yet play once, on their own. */
+function fxKey(ev) { return `${String(V.step || "local").split("-")[0]}:${ev.round}:${ev.id}`; }
+function playNewEvents() {
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem("arena_fx_seen") || "[]"); } catch (e) {}
+  (V.random_events || []).filter(ev => ev.round === V.round && !seen.includes(fxKey(ev))).forEach(ev => {
+    seen.push(fxKey(ev)); setTimeout(() => playEvent(ev), 300);
+  });
+  try { localStorage.setItem("arena_fx_seen", JSON.stringify(seen.slice(-50))); } catch (e) {}
+}
+
+async function playEvent(ev) {
+  if (!REDUCED()) await rollEventZone(ev);
   const layer = $("fx"); if (!layer) return;
   const L = layer.getBoundingClientRect();
   const banner = document.createElement("div"); banner.className = "fxbanner";
@@ -862,7 +921,7 @@ function renderRoundBar() {
   for (let r = 1; r <= last; r++) {
     const happened = hist.find(e => e.round === r), planned = evs.includes(r);
     const cls = ["rb", r < V.round ? "past" : r === V.round ? "now" : "future", planned || happened ? "ev" : ""].join(" ");
-    const tip = happened ? `第 ${r} 回合:${happened.name}` : planned ? `第 ${r} 回合开始时会触发随机事件` : `第 ${r} 回合`;
+    const tip = happened ? `第 ${r} 回合:${happened.name}` : planned ? `第 ${r} 回合大家选好区域后触发随机事件` : `第 ${r} 回合`;
     h += `<span class="${cls}" title="${esc(tip)}">${r}${happened ? `<span class="ic">${icon(happened.id)}</span>` : planned ? `<span class="ic">⚡</span>` : ""}</span>`;
   }
   const next = evs.find(r => r > V.round || (r === V.round && !hist.some(e => e.round === r)));
@@ -919,7 +978,8 @@ function render() {
   $("status").className = "pill" + (V.status === "your_turn" ? " turn" : "");
   const order = (V.turn_order || []), cur = order.find(s => !(V.acted || []).includes(s) && (pl(s) || {}).alive);
   const turn = order.length ? "🎲 桌游模式 · 行动顺序:" + order.map(s => (V.acted || []).includes(s) ? `s${s}✓` : s === cur ? `▶s${s}` : `s${s}`).join(" ") : "";
-  $("zones").textContent = [turn, V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴:" + V.frozen.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
+  $("zones").textContent = [turn, V.feast_active ? "🍗 盛宴生效中" : "", V.feast_next ? "🍗 下回合盛宴" : "", V.frozen.length ? "🌪 沙尘暴(本回合不能离开):" + V.frozen.map(z => ZN[z]).join("、") : "",
+    (V.frozen_next || []).length ? "🌪 沙尘暴(下回合不能离开):" + V.frozen_next.map(z => ZN[z]).join("、") : ""].filter(Boolean).join(" · ");
   renderRoundBar(); renderMap(); renderMe(); renderMsgs(); renderForm(); renderReflect(); renderResult();
   const last = (V.random_events || []).slice(-1)[0];
   $("fxReplay").hidden = !last;

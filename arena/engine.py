@@ -323,9 +323,10 @@ class Engine:
             return None
         # roll among the outer zones still open; once only the center is left, it hits the center
         open_outer = [z for z in self._D4_ZONES if z in self.state.open_zones]
-        target = open_outer[self.rng.randint(1, len(open_outer)) - 1] if open_outer else Zone.CENTER
+        roll = self.rng.randint(1, len(open_outer)) if open_outer else 0
+        target = open_outer[roll - 1] if open_outer else Zone.CENTER
         ev = self.state.events.pop(0)
-        self.apply_random_event(ev, target)
+        self.apply_random_event(ev, target, roll=roll, faces=len(open_outer))
         return ev, target
 
     def _event_target_zones(self, ev, target_zone):
@@ -345,7 +346,13 @@ class Engine:
         for c in cards:
             deck.insert(self.rng.randrange(len(deck) + 1), c)
 
-    def apply_random_event(self, ev, target_zone):
+    def start_round(self):
+        """A telegraphed Feast becomes active; last round's sandstorm locks its zone now."""
+        st = self.state
+        st.feast_active, st.feast_next = st.feast_next, False
+        st.frozen_zones, st.frozen_next = set(getattr(st, "frozen_next", set())), set()
+
+    def apply_random_event(self, ev, target_zone, roll=0, faces=0):
         zones = self._event_target_zones(ev, target_zone)
         victims = self._zone_occupants(zones)
         eid = ev.id
@@ -370,9 +377,11 @@ class Engine:
                     self.log.record(Event("discard", self.state.round_no, p.seat, "private",
                                            {"cards": [p.equipped_weapon.id], "why": "monkeys", "to": p.zone.value}))
                 p.equipped_weapon = None
-        elif eid == "E04":                              # 沙尘暴: freeze the zone (can't move this round)
+        elif eid == "E04":                              # 沙尘暴: whoever is there can't move out next round
+            if not hasattr(self.state, "frozen_next"):
+                self.state.frozen_next = set()
             for z in zones:
-                self.state.frozen_zones.add(z)
+                self.state.frozen_next.add(z)
         elif eid == "E07":                              # Hungry Dogs: pay 2 food OR take damage
             for p in victims:
                 foods = [c for c in p.hand if c.type == CardType.FOOD]
@@ -388,16 +397,15 @@ class Engine:
         # E05 和平日: nothing happens
         self.log.record(Event("random_event", self.state.round_no, None, "public",
                                {"id": eid, "name": ev.name, "zone": target_zone.value,
-                                "zones": [z.value for z in zones],
+                                "zones": [z.value for z in zones], "roll": roll, "faces": faces,
+                                "zone_order": [z.value for z in self._D4_ZONES if z in self.state.open_zones],
                                 "hits": [p.seat for p in victims]}))
 
     async def play_round(self):
-        # a telegraphed Feast from last round becomes active now; a fresh sandstorm starts clear
-        self.state.feast_active, self.state.feast_next = self.state.feast_next, False
-        self.state.frozen_zones = set()
-        self.maybe_random_event()      # fires on EVENT_ROUNDS, before movement (sandstorm freezes it)
+        self.start_round()
         await self.negotiation_phase()
         await self.movement_phase()
+        self.maybe_random_event()      # fires on EVENT_ROUNDS, right after everyone has picked a zone
         self._detonate_bombs()         # bombs planted last round go off after movement
         await self.action_phase()
         self.resolve_deaths()          # finalize deaths only after everyone has acted

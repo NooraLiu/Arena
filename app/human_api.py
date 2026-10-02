@@ -10,6 +10,7 @@ import threading
 
 from play import session as S
 from play import human as H
+from app import ai_driver
 
 LOCK = threading.Lock()
 
@@ -72,43 +73,49 @@ def post_decision(seat, key, body):
                 eng = S._load()
                 if S._absorb_human_reflections(eng):
                     S._save(eng)
-            return 200, {"ok": True}
-        stale = ("round" in body and body.get("round") != eng.state.round_no) or \
-                ("phase" in body and body.get("phase") != eng.phase)
-        if stale or status not in ("your_turn", "submitted"):
-            return 409, {"error": "这一步已经结算了,你的提交没有生效。页面已刷新,请看新的局面再决定。"}
-        errs = H.validate_decision(eng, seat, eng.phase, body)
-        if errs:
-            return 400, {"errors": errs}
-        _write(f"{S.DECISION_DIR}/s{seat}.json", _clean(body, eng.phase))
-        if _all_human(eng):
-            S.advance()                          # nobody else will: no AI seats, no Claude needed
-        return 200, {"ok": True}
+        else:
+            stale = ("round" in body and body.get("round") != eng.state.round_no) or \
+                    ("phase" in body and body.get("phase") != eng.phase)
+            if stale or status not in ("your_turn", "submitted"):
+                return 409, {"error": "这一步已经结算了,你的提交没有生效。页面已刷新,请看新的局面再决定。"}
+            errs = H.validate_decision(eng, seat, eng.phase, body)
+            if errs:
+                return 400, {"errors": errs}
+            _write(f"{S.DECISION_DIR}/s{seat}.json", _clean(body, eng.phase))
+            if _all_human(eng):
+                S.advance()                      # nobody else will: no AI seats, no Claude needed
+    ai_driver.kick()                             # the app plays the AI seats, if this game says so
+    return 200, {"ok": True}
 
 
 def my_seats(local):
     """Human seats of the current game with their keys -- only for a visitor on this computer,
     so one person playing locally can open /play.html without a seat link."""
     if not local:
-        return 403, {"error": "只有在运行服务器的这台电脑上才能直接进入,别的设备请用带口令的链接"}
+        return 403, {"error": "need_password", "message": "要输入 app 口令(或用带座位口令的链接)"}
     with LOCK:
         eng = S._load()
     return 200, {"seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
                            for s, k in sorted(getattr(eng, "humans", {}).items())]}
 
 
-def new_live_game(local, humans, ai, force=False, seed=None, mode="simultaneous"):
+def new_live_game(local, humans, ai, force=False, seed=None, mode="simultaneous", claude=0, bot=0):
     """Start a fresh live game with `humans` random human seats and `ai` AI seats.
     A game still in progress is never replaced silently: without `force` the answer is 409 and
     nothing changes. Whatever was there (finished or not) is archived first, never deleted.
-    Only from this computer."""
+    `claude` / `bot` of the AI seats are played by this app (Claude API / rule bot); the rest are
+    left to a Claude Code chat session. Only from this computer (or with the app password)."""
     import argparse
     import contextlib
     import io
     import random
     if not local:
-        return 403, {"error": "只有在运行服务器的这台电脑上才能开新局"}
+        return 403, {"error": "need_password", "message": "要输入 app 口令才能开新局(或在运行服务器的电脑上打开)"}
     players = humans + ai
+    if claude < 0 or bot < 0 or claude + bot > ai:
+        return 400, {"error": "Claude AI + 机器人 不能超过 AI 总数"}
+    if claude and not ai_driver.claude_available():
+        return 400, {"error": "服务器没有配置 ANTHROPIC_API_KEY,不能用 Claude AI,先选规则机器人吧"}
     if humans < 0 or ai < 0 or not 5 <= players <= 12:
         return 400, {"error": f"人类 + AI 一共要 5~12 人(现在 {players} 人)"}
     seed = random.randint(0, 10**6) if seed is None else seed
@@ -123,7 +130,13 @@ def new_live_game(local, humans, ai, force=False, seed=None, mode="simultaneous"
                                           mode=S.BOARD if mode == S.BOARD else "simultaneous"))
         eng = S._load()
         eng.seed = seed
+        eng.game_id = f"{seed}-{random.randint(0, 10**9)}"
+        ai_seats = [p.seat for p in eng.state.players if p.seat not in eng.humans]
+        random.shuffle(ai_seats)
+        eng.ai_kinds = {s: ("claude" if i < claude else "bot" if i < claude + bot else "agent")
+                        for i, s in enumerate(ai_seats)}       # shuffled: which seat is which kind is random
         S._save(eng)
+    ai_driver.kick()
     return 200, {"seed": seed, "all_human": _all_human(eng), "archived": archived, "mode": eng.mode,
                  "seats": [{"seat": s, "key": k, "name": eng._p(s).character.name}
                            for s, k in sorted(eng.humans.items())]}
@@ -131,4 +144,6 @@ def new_live_game(local, humans, ai, force=False, seed=None, mode="simultaneous"
 
 def live_status():
     with LOCK:
-        return 200, {"game": S.game_status()}
+        g = S.game_status()
+    return 200, {"game": g, "claude_available": ai_driver.claude_available(),
+                 "ai": {"busy": ai_driver.status["busy"], "error": ai_driver.status["error"]}}

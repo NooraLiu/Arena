@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arena 对战台</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f1220">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
   :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
         --hit:#ff6b6b;--dead:#ff3b57;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;}
@@ -59,7 +63,10 @@
 <header>
   <h1>⚔️ Arena 对战台</h1>
   <label>人类玩家 <select id="humans"></select></label>
-  <label>AI 玩家 <select id="ais"></select></label>
+  <label>Claude AI <select id="claudes"></select></label>
+  <label>规则机器人 <select id="bots"></select></label>
+  <label id="agentsWrap" hidden title="由 Claude Code 聊天会话推进(说「推进 Arena 对局」)">聊天驱动 AI <select id="agents"></select></label>
+  <input id="pw" type="password" placeholder="app 口令" hidden style="font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 11px;width:120px">
   <span id="total" style="color:var(--dim);font-size:13px"></span>
   <label>模式 <select id="mode"><option value="board" selected>桌游模式(轮流行动)</option><option value="simultaneous">快速模式(同时提交)</option></select></label>
   <button id="goLive">开始新一局</button>
@@ -68,6 +75,7 @@
   <span id="status" style="color:var(--dim)"></span>
   <div class="cfg" id="cfg"></div>
 </header>
+<div id="lobby" style="max-width:1080px;margin:12px auto 0;padding:0 16px"></div>
 <main>
   <div id="note"></div>
   <div id="out"><div class="empty">还没有对局。选好人类和 AI 的人数,点「开始新一局」。</div></div>
@@ -196,7 +204,7 @@ async function loadSeatKeys(d){
   const want=JSON.stringify([d.seed,d.humans||[],(d.roster||[]).map(p=>p.name)]);
   if(!(d.humans||[]).length){SEATKEYS={};KEYS_FOR=want;return;}
   if(want===KEYS_FOR)return;
-  try{const r=await fetch("/api/my_seats",{cache:"no-store"});const j=await r.json();
+  try{const r=await fetch("/api/my_seats",{cache:"no-store",headers:PWH()});const j=await r.json();
     SEATKEYS={};(j.seats||[]).forEach(x=>SEATKEYS[x.seat]=x.key);}
   catch(e){SEATKEYS={};}
   KEYS_FOR=want;
@@ -278,20 +286,61 @@ document.getElementById("load").addEventListener("click",()=>{
   clearInterval(LIVE);LIVE=null;document.getElementById("load").textContent="继续自动刷新";
   document.getElementById("status").textContent="已停止自动刷新";
 });
-// start a live game: pick how many humans and how many AI agents (5~12 in total)
-const HSEL=document.getElementById("humans"), ASEL=document.getElementById("ais");
+// start a live game: humans + AI seats (5~12 in total). AI seats are Claude (API), rule bots, or
+// (on this computer only) left to a Claude Code chat session.
+const HSEL=document.getElementById("humans"), CSEL=document.getElementById("claudes"),
+      BSEL=document.getElementById("bots"), GSEL=document.getElementById("agents");
+const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const PWBOX=document.getElementById("pw"); PWBOX.value=store.get("arena_pw");
+PWBOX.addEventListener("change",()=>{store.set("arena_pw",PWBOX.value);KEYS_FOR="";pollStatus();});
+function PWH(){return PWBOX.value?{"X-Arena-Password":PWBOX.value}:{};}
 function opts(sel,max,cur){sel.innerHTML=Array.from({length:max+1},(_,i)=>`<option ${i===cur?"selected":""}>${i}</option>`).join("");}
-opts(HSEL,12,2); opts(ASEL,12,4);
-function showTotal(){const n=+HSEL.value + +ASEL.value, ok=n>=5&&n<=12;
+opts(HSEL,12,2); opts(CSEL,12,4); opts(BSEL,12,0); opts(GSEL,12,0);
+const aiCount=()=>+CSEL.value + +BSEL.value + +GSEL.value;
+function showTotal(){const n=+HSEL.value + aiCount(), ok=n>=5&&n<=12;
   const t=document.getElementById("total"); t.textContent=`共 ${n} 人`+(ok?"":"(要 5~12 人)");
   t.style.color=ok?"var(--dim)":"var(--hit)"; goLive.disabled=!ok;}
 const goLive=document.getElementById("goLive");
-HSEL.addEventListener("change",showTotal); ASEL.addEventListener("change",showTotal); showTotal();
+[HSEL,CSEL,BSEL,GSEL].forEach(s=>s.addEventListener("change",showTotal)); showTotal();
 async function newGame(h,a,force){
   const m=document.getElementById("mode").value;
-  const r=await fetch(`/api/new_live_game?humans=${h}&ai=${a}&mode=${m}${force?"&force=1":""}`,{method:"POST"});return r.json();}
+  const r=await fetch(`/api/new_live_game?humans=${h}&ai=${a}&claude=${+CSEL.value}&bot=${+BSEL.value}&mode=${m}${force?"&force=1":""}`,
+                      {method:"POST",headers:PWH()});return r.json();}
+// server status: AI worker, whether Claude is set up, whether this visitor may start games
+let STATUS=null;
+async function pollStatus(){
+  let s;
+  try{const r=await fetch("/api/live_status",{cache:"no-store",headers:PWH()});s=await r.json();}catch(e){return;}
+  if(!s||!s.ai)return;
+  STATUS=s;
+  PWBOX.hidden=s.trusted||!s.password_set;
+  document.getElementById("agentsWrap").hidden=!s.local;
+  if(!s.claude_available&&!CSEL.disabled){            // no API key on the server: offer rule bots instead
+    BSEL.value=Math.min(12,+BSEL.value + +CSEL.value);CSEL.value=0;CSEL.disabled=true;
+    CSEL.parentElement.title="服务器没配置 ANTHROPIC_API_KEY";showTotal();}
+  renderLobby();
+}
+async function renderLobby(){
+  const el=document.getElementById("lobby"), s=STATUS||{}, g=s.game;
+  let h="";
+  if(!s.trusted) h+=`<div class="note">${s.password_set?"输入 app 口令后才能开新局、拿到人类座位链接。":"这台服务器只允许在它自己的电脑上开局。"}已经拿到座位链接的玩家直接打开链接就行。</div>`;
+  if(g){
+    h+=`<div class="note">当前对局:${g.players} 人局 · 第 ${g.round} 回合 · ${g.over?"已结束":"还剩 "+g.alive+" 人"}`+
+       (s.ai&&s.ai.busy?" · 🤖 AI 正在思考…":"")+(s.ai&&s.ai.error?`<br><span style="color:var(--hit)">${s.ai.error}</span>`:"");
+    if(s.trusted){
+      try{const r=await fetch("/api/my_seats",{cache:"no-store",headers:PWH()});const j=await r.json();
+        if((j.seats||[]).length)h+=`<br>人类座位链接(各自打开自己的,别看别人的):`+j.seats.map((x,i)=>{
+          const u=`${location.origin}/play.html?seat=${x.seat}&key=${encodeURIComponent(x.key)}`;
+          return `<br>玩家 ${i+1}:<a href="${u}" target="_blank">进入玩家席</a> <button class="ghost" data-copy="${u}">复制链接</button>`;}).join("");}catch(e){}
+    }
+    h+=`</div>`;
+  }
+  el.innerHTML=h;
+  el.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>navigator.clipboard&&navigator.clipboard.writeText(b.dataset.copy).then(()=>b.textContent="已复制"));
+}
+pollStatus(); setInterval(pollStatus,4000);
 goLive.addEventListener("click",async()=>{
-  const h=+HSEL.value, a=+ASEL.value, st=document.getElementById("status");
+  const h=+HSEL.value, a=aiCount(), st=document.getElementById("status");
   goLive.disabled=true;
   try{let j=await newGame(h,a,false);
     if(j.error==="in_progress"){
@@ -299,10 +348,11 @@ goLive.addEventListener("click",async()=>{
                   `要把它存档、再开一局 ${h} 人类 + ${a} AI 吗?\n旧局会存到 play/archive/,不会删除。`))return;
       j=await newGame(h,a,true);
     }
-    if(j.error){st.textContent="错误:"+j.error;return;}
-    KEYS_FOR="";DATA=null;IDX=0;sel=null; startLive();
+    if(j.error){st.textContent="错误:"+(j.message||j.error);if(j.error==="need_password")PWBOX.hidden=false;return;}
+    KEYS_FOR="";DATA=null;IDX=0;sel=null; startLive(); pollStatus();
     const how=j.all_human?"全是人类玩家:每个人点自己座位上的「进入玩家席」,所有人都提交后自动结算。"
-      :"人类座位点下面的「进入玩家席」;AI 座位由 Claude 推进——在 Claude Code 聊天里说「推进 Arena 对局」。";
+      :+GSEL.value?"人类座位点「进入玩家席」;Claude AI 和机器人由服务器自动玩,聊天驱动的座位在 Claude Code 里说「推进 Arena 对局」。"
+      :"人类座位点上面的「进入玩家席」;AI 座位由服务器自动玩,不用再找 Claude 推进。";
     document.getElementById("note").innerHTML=`<div class="note">已开局(${h} 人类 + ${a} AI,种子 ${j.seed})。${how}`+
       (j.archived?`<br>上一局已存档到 <code>${j.archived}</code>。`:"")+`</div>`;
   }catch(e){st.textContent="开局失败:"+e;}
@@ -311,5 +361,6 @@ goLive.addEventListener("click",async()=>{
 startLive();          // this page is for the live game: show it right away
 buildCfg(12);
 </script>
+<script>if("serviceWorker" in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("/sw.js").catch(()=>{});</script>
 </body>
 </html>

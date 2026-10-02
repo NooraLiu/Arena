@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arena 玩家席</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f1220">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
   :root{--bg:#0f1220;--card:#191d33;--card2:#12162a;--ink:#e8eaf2;--dim:#9aa0bd;--line:#2a2f4a;
         --hit:#ff6b6b;--win:#ffd166;--zone:#6ea8fe;--ok:#7ee787;--dm:#c3a6ff;
@@ -1353,5 +1357,6 @@ async function pickSeat() {
 if (!SEAT || !KEY) pickSeat();
 else { poll(); setInterval(poll, 2000); }
 </script>
+<script>if("serviceWorker" in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("/sw.js").catch(()=>{});</script>
 </body>
 </html>

@@ -1,0 +1,11 @@
+# One-click deploy on Render (render.com): New + > Blueprint > pick this repo.
+services:
+  - type: web
+    name: arena
+    runtime: docker
+    plan: free
+    envVars:
+      - key: ARENA_PASSWORD        # needed to start games / get seat links from another computer
+        generateValue: true
+      - key: ANTHROPIC_API_KEY     # optional: without it only rule-bot AI seats are offered
+        sync: false
